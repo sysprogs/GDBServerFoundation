@@ -80,6 +80,7 @@
     <ClInclude Include="IGDBStub.h" />
     <ClInclude Include="IGDBTarget.h" />
     <ClInclude Include="signals.h" />
+    <ClInclude Include="BreakInSocket.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>

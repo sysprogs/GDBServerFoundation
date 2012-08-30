@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <bzscore/buffer.h>
+#include "BreakInSocket.h"
 
 namespace GDBServerFoundation
 {
@@ -66,7 +67,7 @@ namespace GDBServerFoundation
 		static StubResponse OK;
 	};
 
-	class IGDBStub
+	class IGDBStub : public IBreakInTarget
 	{
 	public:
 		//! Handles a fully unescaped RLE-expanded request from GDB

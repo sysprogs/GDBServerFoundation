@@ -1,3 +1,4 @@
+kBreakInByte
 #include "StdAfx.h"
 #include "GDBServer.h"
 #include "HexHelpers.h"
@@ -28,96 +29,111 @@ static unsigned computeChecksum(void *p, size_t length)
 	return std::accumulate(pCh, pCh + length, 0) & 0xFF;
 }
 
-void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &socket, const InternetAddress &addr )
+void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &rawSocket, const InternetAddress &addr )
 {
 	enum {kBytesToReceiveAtOnce = 65536};
 
-	TCPSocketEx socketEx(&socket, false);
+	TCPSocketEx socketExNotUsedDirectly(&rawSocket, false);
 	bool ackEnabled = true, newAckEnabled = true;
+
+	BreakInSocket breakInSocket(&socketExNotUsedDirectly);
 
 	IGDBStub *pStub = NULL;
 	if (m_pFactory)
 		pStub = m_pFactory->CreateStub();
 
+	CBuffer unescapedBuffer;
+
+	breakInSocket.SetTarget(pStub);
+
 	for (;;)
 	{
-		//We expect the following format: $<data>#<checksum>
-		if (!FindPacketStart(socketEx, ackEnabled))
-			break;
-
-		ackEnabled = newAckEnabled;
-
-		//Find end-of-packet symbol ('#') taking the escape symbol ('}') into account.
-		size_t available = 0;
-		char *pPacket = (char *)socketEx.PeekAbs(3, &available);
-		if (!pPacket || !available)
-			break;
-
-		size_t searchRestartPosition = 0;
-		size_t endOfPacket = -1;
-
-		//Keep on trying until we find the end-of-packet
-		for (;;)
 		{
-			for (size_t i = searchRestartPosition; i < available; i++)
+			BreakInSocket::SocketWrapper socket(breakInSocket);
+
+			//We expect the following format: $<data>#<checksum>
+			if (!FindPacketStart(socket, ackEnabled, pStub))
+				break;
+
+			ackEnabled = newAckEnabled;
+
+			//Find end-of-packet symbol ('#') taking the escape symbol ('}') into account.
+			size_t available = 0;
+			char *pPacket = (char *)socket->PeekAbs(3, &available);
+			if (!pPacket || !available)
+				break;
+
+			size_t searchRestartPosition = 0;
+			size_t endOfPacket = -1;
+
+			//Keep on trying until we find the end-of-packet
+			for (;;)
 			{
-				searchRestartPosition = i;
-				if (pPacket[i] == kEscapeChar)
+				for (size_t i = searchRestartPosition; i < available; i++)
 				{
-					i++;	//Simply skip the next character
-					continue;
+					searchRestartPosition = i;
+					if (pPacket[i] == kEscapeChar)
+					{
+						i++;	//Simply skip the next character
+						continue;
+					}
+
+					if (pPacket[i] == kPacketEnd)
+					{
+						endOfPacket = i;
+						break;
+					}
 				}
 
-				if (pPacket[i] == kPacketEnd)
-				{
-					endOfPacket = i;
+				if (endOfPacket != -1)
 					break;
-				}
+
+				size_t newAvail = available;
+				pPacket = (char *)socket->PeekRel(kBytesToReceiveAtOnce, &newAvail);
+				if (!pPacket || newAvail == available)
+					break;
+
+				available = newAvail;
 			}
 
-			if (endOfPacket != -1)
-				break;
+			if (endOfPacket == -1)
+				break;	//The connection has been closed
 
-			size_t newAvail = available;
-			pPacket = (char *)socketEx.PeekRel(kBytesToReceiveAtOnce, &newAvail);
-			if (!pPacket || newAvail == available)
-				break;
+			size_t packetWithChecksumLength = endOfPacket + 3;
+			if (available < packetWithChecksumLength)
+			{
+				pPacket = (char *)socket->PeekAbs(packetWithChecksumLength, &available);
+				if (!pPacket || available < packetWithChecksumLength)
+					break;
+			}
 
-			available = newAvail;
+			unsigned checksum = ParseHexValue(pPacket + endOfPacket + 1);
+			unsigned expectedChecksum = computeChecksum(pPacket, endOfPacket);
+
+			if (checksum != expectedChecksum)
+			{
+				OnPacketError(String::sFormat(_T("Invalid packet checksum. Expected 0x%02X, got 0x%02X"), expectedChecksum, checksum));
+				continue;
+			}
+
+			unescapedBuffer.EnsureSize(endOfPacket);
+
+			size_t unescapedSize = UnescapePacket(pPacket, endOfPacket, unescapedBuffer.GetData());
+			unescapedBuffer.SetSize(unescapedSize);
+			socket->Discard(pPacket, packetWithChecksumLength);
+
+			if (ackEnabled)
+			{
+				char ch = kACK;
+				socket->Send(&ch, 1);
+			}
 		}
 
-		if (endOfPacket == -1)
-			break;	//The connection has been closed
-
-		size_t packetWithChecksumLength = endOfPacket + 3;
-		if (available < packetWithChecksumLength)
-		{
-			pPacket = (char *)socketEx.PeekAbs(packetWithChecksumLength, &available);
-			if (!pPacket || available < packetWithChecksumLength)
-				break;
-		}
-
-		unsigned checksum = ParseHexValue(pPacket + endOfPacket + 1);
-		unsigned expectedChecksum = computeChecksum(pPacket, endOfPacket);
-
-		if (checksum != expectedChecksum)
-		{
-			OnPacketError(String::sFormat(_T("Invalid packet checksum. Expected 0x%02X, got 0x%02X"), expectedChecksum, checksum));
-			continue;
-		}
-
-		size_t unescapedSize = UnescapePacket(pPacket, endOfPacket);
-		if (ackEnabled)
-		{
-			char ch = kACK;
-			socketEx.Send(&ch, 1);
-		}
-
-		HandleGDBPacketAndSendReply(pStub, pPacket, unescapedSize, socketEx, &newAckEnabled);
-
-		socketEx.Discard(pPacket, packetWithChecksumLength);
+		HandleGDBPacketAndSendReply(pStub, (const char *)unescapedBuffer.GetConstData(), unescapedBuffer.GetSize(), breakInSocket, &newAckEnabled);
 	}
-	socketEx.Close();
+
+	breakInSocket.SetTarget(NULL);
+	socketExNotUsedDirectly.Close();
 	delete pStub;
 }
 
@@ -126,32 +142,39 @@ BazisLib::ActionStatus GDBServerFoundation::GDBServer::Start(unsigned port)
 	return BasicTCPServer::Start(port);
 }
 
-bool GDBServerFoundation::GDBServer::FindPacketStart(TCPSocketEx &socket, bool expectingACK)
+bool GDBServerFoundation::GDBServer::FindPacketStart(BreakInSocket::SocketWrapper &socket, bool expectingACK, IBreakInTarget *pTarget)
 {
 	for (;;)
 	{
 		size_t available = 0;
 		//1. Find start of packet.
-		char *pPacket = (char *)socket.PeekAbs(1, &available);
+		char *pPacket = (char *)socket->PeekAbs(1, &available);
 		if (!pPacket || !available)
 			return false;
+
+		if (pPacket[0] == BreakInSocket::kBreakInByte)
+		{
+			pTarget->OnBreakInRequest();
+			socket->Discard(pPacket, 1);
+			continue;
+		}
 
 		if (expectingACK)
 		{
 			char ackChar = pPacket[0];
-			socket.Discard(pPacket, 1);
+			socket->Discard(pPacket, 1);
 			if (ackChar != kACK)
 			{
 				OnPacketError(String::sFormat(_T("Expected ACK ('+'), got 0x%02X (%c)"), ackChar & 0xFF, ackChar));
 				continue;
 			}
-			pPacket = (char *)socket.PeekAbs(1, &available);
+			pPacket = (char *)socket->PeekAbs(1, &available);
 			if (!pPacket || !available)
 				return false;
 		}
 
 		char firstChar = pPacket[0];
-		socket.Discard(pPacket, 1);
+		socket->Discard(pPacket, 1);
 
 		if (firstChar != kPacketStart)
 		{
@@ -163,23 +186,24 @@ bool GDBServerFoundation::GDBServer::FindPacketStart(TCPSocketEx &socket, bool e
 	}
 }
 
-size_t GDBServerFoundation::GDBServer::UnescapePacket( void *pPacket, size_t escapedSize )
+size_t GDBServerFoundation::GDBServer::UnescapePacket(const void *pPacket, size_t escapedSize, void *pTarget)
 {
 	size_t w = 0;
-	char *pCh = (char *)pPacket;
+	const char *pCh = (const char *)pPacket;
+	char *pOut = (char *)pTarget;
 
 	for (size_t r = 0; r < escapedSize; r++)
 	{
 		if (pCh[r] == kEscapeChar && r != (escapedSize - 1))
-			pCh[w++] = pCh[++r] ^ kEscapeMask;
+			pOut[w++] = pCh[++r] ^ kEscapeMask;
 		else
-			pCh[w++] = pCh[r];
+			pOut[w++] = pCh[r];
 	}
 
 	return w;
 }
 
-void GDBServerFoundation::GDBServer::HandleGDBPacketAndSendReply( IGDBStub *pStub, const char *pPacketBody, size_t packetBodyLength, BazisLib::Network::TCPSocketEx &socket, bool *ackEnabled )
+void GDBServerFoundation::GDBServer::HandleGDBPacketAndSendReply( IGDBStub *pStub, const char *pPacketBody, size_t packetBodyLength, BreakInSocket &socket, bool *ackEnabled )
 {
 	if (!pStub)
 		return;

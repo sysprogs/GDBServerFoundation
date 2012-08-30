@@ -24,6 +24,12 @@ namespace GDBServerFoundation
 				delete m_pTarget;
 		}
 
+		virtual void OnBreakInRequest()
+		{
+			if (m_pTarget)
+				m_pTarget->SendBreakInRequestAsync();
+		}
+
 		virtual StubResponse Handle_QueryStopReason();
 		virtual StubResponse Handle_g(int threadID);
 		virtual StubResponse Handle_G(int threadID, const BazisLib::TempStringA &registerValueBlock);
@@ -42,6 +48,7 @@ namespace GDBServerFoundation
 		virtual StubResponse Handle_qThreadExtraInfo(const BazisLib::TempStringA &strThreadID);
 		virtual StubResponse Handle_T(const BazisLib::TempStringA &strThreadID);
 		virtual StubResponse Handle_qC();
+
 
 	protected:
 		virtual BazisLib::DynamicStringA BuildGDBReportByName(const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex);

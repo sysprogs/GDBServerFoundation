@@ -84,7 +84,9 @@ private:
 
 	virtual GDBStatus SendBreakInRequestAsync()
 	{
-		return kGDBUnknownError;
+		if (!DebugBreakProcess(m_hProcess))
+			return kGDBUnknownError;
+		return kGDBSuccess;
 	}
 
 private:

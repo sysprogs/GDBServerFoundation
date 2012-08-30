@@ -3,6 +3,7 @@
 #include <bzscore/status.h>
 #include <bzsnet/BufferedSocket.h>
 #include "IGDBStub.h"
+#include "BreakInSocket.h"
 
 namespace GDBServerFoundation
 {
@@ -10,7 +11,6 @@ namespace GDBServerFoundation
 	{
 	private:
 		virtual void ConnectionHandler(BazisLib::Network::TCPSocket &socket, const BazisLib::Network::InternetAddress &addr) override;
-		typedef BazisLib::Network::TCPSocketEx TCPSocketEx;
 
 	private:
 		IGDBStubFactory *m_pFactory;
@@ -18,11 +18,11 @@ namespace GDBServerFoundation
 
 	private:
 		//! Reads the socket until the start-of-packet symbol ('$') is encountered. Returns false if the connection has been dropped.
-		bool FindPacketStart(TCPSocketEx &socket, bool expectingACK);
+		bool FindPacketStart(BreakInSocket::SocketWrapper &socket, bool expectingACK, IBreakInTarget *pTarget);
 
-		void HandleGDBPacketAndSendReply(IGDBStub *pStub, const char *pPacketBody, size_t packetBodyLength, BazisLib::Network::TCPSocketEx &socket, bool *ackEnabled);
+		void HandleGDBPacketAndSendReply(IGDBStub *pStub, const char *pPacketBody, size_t packetBodyLength, BreakInSocket &socket, bool *ackEnabled);
 
-		static size_t UnescapePacket(void *pPacket, size_t escapedSize);
+		static size_t UnescapePacket(const void *pPacket, size_t escapedSize, void *pTarget);
 
 		//! Disables the +/- packet acknowledgment.
 		StubResponse QStartNoAckMode(bool *ackEnabled);
@@ -42,6 +42,5 @@ namespace GDBServerFoundation
 			if (m_pFactory)
 				m_pFactory->OnProtocolError(msg.c_str());
 		}
-
 	};
 }
