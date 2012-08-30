@@ -14,7 +14,7 @@ StubResponse GDBStub::Handle_QueryStopReason()
 		return StandardResponses::CommandNotSupported;
 
 	TargetRegisterValues registers = InitializeTargetRegisterContainer();
-	GDBStatus status = m_pTarget->ReadTargetRegisters(rec.ThreadID, registers);
+	GDBStatus status = m_pTarget->ReadFrameRelatedRegisters(rec.ThreadID, registers);
 	BazisLib::DynamicStringA strRegisters;
 	if (status == kGDBSuccess)
 	{
@@ -252,15 +252,13 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 	else if (name == "threads")
 	{
 		BazisLib::DynamicStringA result = "<?xml version=\"1.0\"?>\n<threads>\n";
-		m_CachedThreadInfo.clear();
-		GDBStatus status = m_pTarget->GetThreadList(m_CachedThreadInfo);
-		if (status == kGDBSuccess)
-			for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
-			{
-				result.AppendFormat("\t<thread id=\"%x\">", m_CachedThreadInfo[i].ThreadID);
-				result.append(m_CachedThreadInfo[i].UserFriendlyName.c_str());
-				result.append("</thread>\n");
-			}
+		ProvideThreadInfo();
+		for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+		{
+			result.AppendFormat("\t<thread id=\"%x\">", m_CachedThreadInfo[i].ThreadID);
+			result.append(m_CachedThreadInfo[i].UserFriendlyName.c_str());
+			result.append("</thread>\n");
+		}
 		result.AppendFormat("</threads>\n");
 		return result;
 	}
@@ -269,6 +267,7 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_c( int threadID )
 {
+	ResetAllCachesWhenResumingTarget();
 	GDBStatus status = m_pTarget->ResumeAndWait(threadID);
 	if (status != kGDBSuccess)
 		return FormatGDBStatus(status);
@@ -278,6 +277,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_c( int th
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_s( int threadID )
 {
+	ResetAllCachesWhenResumingTarget();
 	GDBStatus status = m_pTarget->Step(threadID);
 	if (status != kGDBSuccess)
 		return FormatGDBStatus(status);
@@ -291,9 +291,8 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_s( int th
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qfThreadInfo()
 {
-	m_CachedThreadInfo.clear();
-	GDBStatus status = m_pTarget->GetThreadList(m_CachedThreadInfo);
-	if (status != kGDBSuccess)
+	ProvideThreadInfo();
+	if (!m_bThreadsSupported)
 		return StandardResponses::CommandNotSupported;
 
 	StubResponse response;
@@ -321,6 +320,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qsThreadI
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qThreadExtraInfo( const BazisLib::TempStringA &strThreadID )
 {
+	ProvideThreadInfo();
 	int threadID = HexHelpers::ParseHexString<unsigned>(strThreadID);
 	for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
 	{
@@ -345,6 +345,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qThreadEx
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_T( const BazisLib::TempStringA &strThreadID )
 {
+	ProvideThreadInfo();
 	int threadID = HexHelpers::ParseHexString<unsigned>(strThreadID);
 
 	for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
@@ -364,4 +365,32 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qC()
 	char szResponse[64];
 	snprintf(szResponse, sizeof(szResponse), "QC%x", rec.ThreadID);
 	return szResponse;
+}
+
+GDBServerFoundation::GDBStub::GDBStub( ISyncGDBTarget *pTarget, bool own /*= true*/ )
+{
+	m_pTarget = pTarget;
+	m_bOwnStub = own;
+	m_bThreadCacheValid = false;
+	m_bThreadsSupported = true;
+
+	m_pRegisters = pTarget->GetRegisterList();
+
+	RegisterStubFeature("qXfer:libraries:read");
+	RegisterStubFeature("qXfer:threads:read");
+}
+
+void GDBServerFoundation::GDBStub::ResetAllCachesWhenResumingTarget()
+{
+	BasicGDBStub::ResetAllCachesWhenResumingTarget();
+	m_bThreadCacheValid = false;
+}
+
+void GDBServerFoundation::GDBStub::ProvideThreadInfo()
+{
+	if (m_bThreadCacheValid)
+		return;
+	m_bThreadCacheValid = true;
+	m_CachedThreadInfo.clear();
+	m_bThreadsSupported = (m_pTarget->GetThreadList(m_CachedThreadInfo) == kGDBSuccess);
 }

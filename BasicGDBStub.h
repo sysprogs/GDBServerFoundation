@@ -16,24 +16,8 @@ namespace GDBServerFoundation
 		std::map<std::string, std::string> m_StubFeatures;
 
 	protected:
-		class ThreadIDStore
-		{
-			int m_IDs[256];
-
-		public:
-			ThreadIDStore()
-			{
-				memset(&m_IDs, 0, sizeof(m_IDs));
-			}
-
-			int &operator[](unsigned char op)
-			{
-				return m_IDs[op];
-			}
-		};
-
-		//! Stores the data received from the 'H op thread-id' packet
-		ThreadIDStore m_ThreadIDsForOps;
+		int m_ThreadIDForCont, m_ThreadIDForReg;
+		
 		//Should be updated from the code returning stop records
 		int m_LastReportedCurrentThreadID;
 
@@ -88,15 +72,16 @@ namespace GDBServerFoundation
 		//! Returns the current thread ID
 		virtual StubResponse Handle_qC()=0;
 
-
 	protected:
 		StubResponse StopRecordToStopReply(const TargetStopRecord &rec, const char *pReportedRegisterValues = NULL, bool updateLastReportedThreadID = true);
-		int GetThreadIDForOp(unsigned char op);
+		int GetThreadIDForOp(bool isRegOp);
 		
 		void AppendRegisterValueToString(const RegisterValue &val, size_t sizeInBytes, BazisLib::DynamicStringA &str, const char *pSuffix = NULL);	
 
 		StubResponse FormatGDBStatus(GDBStatus status);
 
 		void RegisterStubFeature(const char *pFeature) {m_StubFeatures[pFeature] = "+";}
+		virtual void ResetAllCachesWhenResumingTarget();
+
 	};
 }

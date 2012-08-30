@@ -13,18 +13,10 @@ namespace GDBServerFoundation
 		const PlatformRegisterList *m_pRegisters;
 
 		std::vector<ThreadRecord> m_CachedThreadInfo;
+		bool m_bThreadCacheValid, m_bThreadsSupported;
 
 	public:
-		GDBStub(ISyncGDBTarget *pTarget, bool own = true)
-		{
-			m_pTarget = pTarget;
-			m_bOwnStub = own;
-
-			m_pRegisters = pTarget->GetRegisterList();
-			
-			RegisterStubFeature("qXfer:libraries:read");
-			RegisterStubFeature("qXfer:threads:read");
-		}
+		GDBStub(ISyncGDBTarget *pTarget, bool own = true);
 
 		~GDBStub()
 		{
@@ -56,5 +48,9 @@ namespace GDBServerFoundation
 
 	protected:
 		TargetRegisterValues InitializeTargetRegisterContainer();
+		void ResetAllCachesWhenResumingTarget();
+
+	protected:
+		void ProvideThreadInfo();
 	};
 }

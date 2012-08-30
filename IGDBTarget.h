@@ -51,6 +51,7 @@ namespace GDBServerFoundation
 		kUnspecified,
 		kSignalReceived,
 		kProcessExited,
+		kLibraryEvent,
 	};
 
 	struct TargetStopRecord

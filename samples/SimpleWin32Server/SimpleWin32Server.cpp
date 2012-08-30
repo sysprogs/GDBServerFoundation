@@ -16,7 +16,8 @@ using namespace GDBServerFoundation;
 bool LaunchDebuggedProcess(PROCESS_INFORMATION *pProcInfo)
 {
 	STARTUPINFO startupInfo = {sizeof(STARTUPINFO), };
-	TCHAR tsz[] = L"C:\\MinGW\\bin\\0.exe";
+	//TCHAR tsz[] = L"C:\\MinGW\\bin\\0.exe";
+	TCHAR tsz[] = L"E:\\PROJECTS\\TEMP\\CustomGDBServerTest\\Debug\\CustomGDBServerTest.exe";
 
 	if (!CreateProcess(NULL, tsz, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startupInfo, pProcInfo))
 		return false;
@@ -92,29 +93,53 @@ private:
 	HANDLE m_hProcess;
 
 private:
-	bool WaitForDebugEvent()
+	bool WaitForDebugEvent(bool ignoreUnsupportedEvents = true)
 	{
-		if (!::WaitForDebugEvent(&m_DebugEvent, INFINITE))
-			return false;
+		for (;;)
+		{
+			if (!::WaitForDebugEvent(&m_DebugEvent, INFINITE))
+				return false;
 
-		switch(m_DebugEvent.dwDebugEventCode)
+			switch(m_DebugEvent.dwDebugEventCode)
+			{
+			case EXCEPTION_DEBUG_EVENT:
+				if (m_DebugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP)
+				{
+					CONTEXT context;
+					if (!GetContextByThreadID(m_DebugEvent.dwThreadId, &context))
+						break;
+
+					context.EFlags &= ~0x0100;	//Disable single-stepping
+
+					if (!SetContextByThreadID(m_DebugEvent.dwThreadId, &context))
+						break;
+				}
+				break;
+			}
+
+			if (ignoreUnsupportedEvents && !IsDebugEventSupportedByGDB(m_DebugEvent.dwDebugEventCode))
+			{
+				if (!ContinueDebugEvent(m_DebugEvent.dwProcessId, m_DebugEvent.dwThreadId, DBG_CONTINUE))
+					return false;
+				continue;
+			}
+
+			return true;
+		}
+	}
+
+	bool IsDebugEventSupportedByGDB(DWORD dwEvent)
+	{
+		switch(dwEvent)
 		{
 		case EXCEPTION_DEBUG_EVENT:
-			if (m_DebugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP)
-			{
-				CONTEXT context;
-				if (!GetContextByThreadID(m_DebugEvent.dwThreadId, &context))
-					break;
-
-				context.EFlags &= ~0x0100;	//Disable single-stepping
-
-				if (!SetContextByThreadID(m_DebugEvent.dwThreadId, &context))
-					break;
-			}
-			break;
+		case LOAD_DLL_DEBUG_EVENT:
+		case UNLOAD_DLL_DEBUG_EVENT:
+		case OUTPUT_DEBUG_STRING_EVENT:
+			return true;
+		default:
+			return false;
 		}
-
-		return true;
 	}
 
 public:
@@ -128,14 +153,7 @@ public:
 		if (hThreadToResume != INVALID_HANDLE_VALUE)
 			ResumeThread(hThreadToResume);
 
-		WaitForDebugEvent();
-		while (m_DebugEvent.dwDebugEventCode != EXCEPTION_DEBUG_EVENT)
-		{
-			if (!ContinueDebugEvent(m_DebugEvent.dwProcessId, m_DebugEvent.dwThreadId, DBG_CONTINUE))
-				printf("Cannot continue from debug event: error %d\n", GetLastError());
-			if (!WaitForDebugEvent())
-				printf("Cannot wait for debug event: error %d\n", GetLastError());
-		}
+		WaitForDebugEvent(false);
 	}
 
 	~Win32GDBTarget()
@@ -168,6 +186,13 @@ protected:
 				pRec->Extension.SignalNumber = SIGINT;
 				break;
 			}
+			break;
+		case LOAD_DLL_DEBUG_EVENT:
+		case UNLOAD_DLL_DEBUG_EVENT:
+			pRec->Reason = kLibraryEvent;
+			break;
+		default:
+			pRec->Reason = kUnspecified;
 			break;
 		}
 		return kGDBSuccess;
@@ -320,11 +345,16 @@ public:	//Optional API
 
 class SimpleStub : public GDBStub
 {
+	FILE *pLogFile;
+
 	virtual StubResponse HandleRequest(const BazisLib::TempStringA &requestType, char splitterChar, const BazisLib::TempStringA &requestData)
 	{
 		printf(">> %s%c%s\n", DynamicStringA(requestType).c_str(), splitterChar, DynamicStringA(requestData).c_str());
+		fprintf(pLogFile, ">> %s%c%s\n", DynamicStringA(requestType).c_str(), splitterChar, DynamicStringA(requestData).c_str());
 		StubResponse response = __super::HandleRequest(requestType, splitterChar, requestData);
 		printf("<< %s\n", std::string(response.GetData(), response.GetSize()).c_str());
+		fprintf(pLogFile, "<< %s\n", std::string(response.GetData(), response.GetSize()).c_str());
+		fflush(pLogFile);
 		return response;
 	}
 
@@ -332,6 +362,12 @@ public:
 	SimpleStub(ISyncGDBTarget *pTarget)
 		: GDBStub(pTarget, true)
 	{
+		pLogFile = fopen("gdbserver.log", "w");
+	}
+
+	~SimpleStub()
+	{
+		fclose(pLogFile);
 	}
 };
 

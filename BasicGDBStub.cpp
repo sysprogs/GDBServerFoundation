@@ -32,33 +32,30 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 	case '?':
 		return Handle_QueryStopReason();
 	case 'g':
-		return Handle_g(GetThreadIDForOp(requestType[0]));
+		return Handle_g(GetThreadIDForOp(true));
 	case 'G':
-		return Handle_G(GetThreadIDForOp(requestType[0]), requestType.substr(1));
+		return Handle_G(GetThreadIDForOp(true), requestType.substr(1));
 	case 'P':
 		idx = requestType.find('=');
 		if (idx == -1)
 			break;
-		return Handle_P(GetThreadIDForOp(requestType[0]), requestType.substr(1, idx - 1), requestType.substr(idx + 1));
+		return Handle_P(GetThreadIDForOp(true), requestType.substr(1, idx - 1), requestType.substr(idx + 1));
 	case 'm':
-		idx = requestType.find(',');
-		if (idx == -1)
-			break;
-		return Handle_m(requestType.substr(1, idx - 1), requestType.substr(idx + 1));
+		return Handle_m(requestType.substr(1), requestData);
 	case 'M':
-		idx = requestType.find(',');
+		idx = requestData.find(':');
 		if (idx == -1)
 			break;
-		return Handle_M(requestType.substr(1, idx - 1), requestType.substr(idx + 1), requestData);
+		return Handle_M(requestType.substr(1), requestData.substr(0, idx), requestData.substr(idx + 1));
 	case 'X':
-		idx = requestType.find(',');
+		idx = requestData.find(':');
 		if (idx == -1)
 			break;
-		return Handle_X(requestType.substr(1, idx - 1), requestType.substr(idx + 1), requestData);
+		return Handle_X(requestType.substr(1), requestData.substr(0, idx), requestData.substr(idx + 1));
 	case 'c':
-		return Handle_c(GetThreadIDForOp(requestType[0]));
+		return Handle_c(GetThreadIDForOp(false));
 	case 's':
-		return Handle_s(GetThreadIDForOp(requestType[0]));
+		return Handle_s(GetThreadIDForOp(false));
 	case 'T':
 		return Handle_T(requestType.substr(1));
 	}
@@ -123,10 +120,27 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::Handle_H( c
 {
 	if (requestType.length() < 3)
 		return StandardResponses::InvalidArgument;
+
+	//If the thread does not exist, abort the command
+	StubResponse response = Handle_T(requestType.substr(2));
+	if (response.GetSize() != 2 || memcmp(response.GetData(), "OK", 2))
+		return response;
+
 	unsigned char op = requestType[1];
 	int threadId = HexHelpers::ParseHexString<unsigned>(requestType.substr(2));
 
-	m_ThreadIDsForOps[op] = threadId;
+	switch(op)
+	{
+	case 'c':
+		m_ThreadIDForCont = threadId;
+		break;
+	case 'g':
+		m_ThreadIDForReg = threadId;
+		break;
+	default:
+		return StandardResponses::InvalidArgument;
+	}
+
 	return StandardResponses::OK;
 }
 
@@ -161,9 +175,14 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::StopRecordT
 			response.Append(pReportedRegisterValues);
 		response.Append(szThread);
 		break;
+	case kLibraryEvent:
 	default:
 		response.Append("T05");	//Default to SIGTRAP
+		if (pReportedRegisterValues)
+			response.Append(pReportedRegisterValues);
 		response.Append(szThread);
+		if (rec.Reason == kLibraryEvent)
+			response.Append("library:;");
 		break;
 	}
 
@@ -173,9 +192,9 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::StopRecordT
 	return response;
 }
 
-int GDBServerFoundation::BasicGDBStub::GetThreadIDForOp( unsigned char op )
+int GDBServerFoundation::BasicGDBStub::GetThreadIDForOp( bool isRegOp )
 {
-	int defaultThreadID = m_ThreadIDsForOps[op];
+	int defaultThreadID = isRegOp ? m_ThreadIDForReg : m_ThreadIDForCont;
 	if (defaultThreadID <= 0)
 		return m_LastReportedCurrentThreadID;
 	return defaultThreadID;
@@ -204,4 +223,9 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::FormatGDBSt
 	else
 		response.Append("OK");
 	return response;
+}
+
+void GDBServerFoundation::BasicGDBStub::ResetAllCachesWhenResumingTarget()
+{
+	m_ThreadIDForCont = m_ThreadIDForReg = 0;
 }
