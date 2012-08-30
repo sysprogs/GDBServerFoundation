@@ -57,13 +57,28 @@ C_ASSERT(__countof(s_ContextRegisterOffsets) == __countof(i386::_RawRegisterList
 
 class Win32GDBTarget : public ISyncGDBTarget
 {
-	virtual GDBStatus ResumeAndWait()
+private:
+	virtual GDBStatus ResumeAndWait(int threadID)
 	{
-		return kGDBUnknownError;
+		if (!ContinueDebugEvent(m_DebugEvent.dwProcessId, m_DebugEvent.dwThreadId, DBG_CONTINUE))
+			return kGDBUnknownError;
+		if (!WaitForDebugEvent())
+			return kGDBUnknownError;
+		return kGDBSuccess;
 	}
-	virtual GDBStatus Step()
+
+	virtual GDBStatus Step(int threadID)
 	{
-		return kGDBUnknownError;
+		CONTEXT context;
+		if (!GetContextByThreadID(threadID, &context))
+			return kGDBUnknownError;
+
+		context.EFlags |= 0x0100;	//Enable single-stepping, will be auto-disabled in our WaitForDebugEvent() wrapper
+
+		if (!SetContextByThreadID(threadID, &context))
+			return kGDBUnknownError;
+		
+		return ResumeAndWait(threadID);
 	}
 
 	virtual GDBStatus SendBreakInRequestAsync()
@@ -76,32 +91,28 @@ private:
 	DEBUG_EVENT m_DebugEvent;
 	HANDLE m_hProcess;
 
-//	std::map<ULONGLONG, DynamicLibraryRecord> m_LoadedDLLs;
-
 private:
 	bool WaitForDebugEvent()
 	{
 		if (!::WaitForDebugEvent(&m_DebugEvent, INFINITE))
 			return false;
 
-	/*	switch(m_DebugEvent.dwDebugEventCode)
+		switch(m_DebugEvent.dwDebugEventCode)
 		{
-		case LOAD_DLL_DEBUG_EVENT:
+		case EXCEPTION_DEBUG_EVENT:
+			if (m_DebugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP)
 			{
-				DynamicLibraryRecord rec;
-				rec.LoadAddress = (ULONGLONG)m_DebugEvent.u.LoadDll.lpBaseOfDll;
-// 				if (m_DebugEvent.u.LoadDll.fUnicode)
-// 					rec.FullPath = BazisLib::StringToANSISTLString(TempStrPointerWrapper((wchar_t *)m_DebugEvent.u.LoadDll.lpImageName));
-// 				else
-// 					rec.FullPath = (char *)m_DebugEvent.u.LoadDll.lpImageName;
+				CONTEXT context;
+				if (!GetContextByThreadID(m_DebugEvent.dwThreadId, &context))
+					break;
 
-				m_LoadedDLLs[rec.LoadAddress] = rec;
+				context.EFlags &= ~0x0100;	//Disable single-stepping
+
+				if (!SetContextByThreadID(m_DebugEvent.dwThreadId, &context))
+					break;
 			}
 			break;
-		case UNLOAD_DLL_DEBUG_EVENT:
-			m_LoadedDLLs.erase((ULONGLONG)m_DebugEvent.u.UnloadDll.lpBaseOfDll);
-			break;
-		}*/
+		}
 
 		return true;
 	}
@@ -120,8 +131,10 @@ public:
 		WaitForDebugEvent();
 		while (m_DebugEvent.dwDebugEventCode != EXCEPTION_DEBUG_EVENT)
 		{
-			ContinueDebugEvent(m_DebugEvent.dwProcessId, m_DebugEvent.dwThreadId, DBG_CONTINUE);
-			WaitForDebugEvent();
+			if (!ContinueDebugEvent(m_DebugEvent.dwProcessId, m_DebugEvent.dwThreadId, DBG_CONTINUE))
+				printf("Cannot continue from debug event: error %d\n", GetLastError());
+			if (!WaitForDebugEvent())
+				printf("Cannot wait for debug event: error %d\n", GetLastError());
 		}
 	}
 
@@ -148,6 +161,7 @@ protected:
 				pRec->Extension.SignalNumber = SIGSEGV;
 				break;
 			case EXCEPTION_BREAKPOINT:
+			case EXCEPTION_SINGLE_STEP:
 				pRec->Extension.SignalNumber = SIGTRAP;
 				break;
 			default:
@@ -264,10 +278,6 @@ public:	//Memory API
 public:	//Optional API
 	virtual GDBStatus GetDynamicLibraryList(std::vector<DynamicLibraryRecord> &libraries)
 	{
-// 		for each(const std::pair<ULONGLONG, DynamicLibraryRecord> &kv in m_LoadedDLLs)
-// 			libraries.push_back(kv.second);
-//		return kGDBSuccess;
-
 		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, m_dwPID);
 		if (hSnapshot == INVALID_HANDLE_VALUE)
 			return kGDBUnknownError;
@@ -284,6 +294,28 @@ public:	//Optional API
 		return kGDBSuccess;
 	}
 
+	virtual GDBStatus GetThreadList(std::vector<ThreadRecord> &threads)
+	{
+		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, m_dwPID);
+		if (hSnapshot == INVALID_HANDLE_VALUE)
+			return kGDBUnknownError;
+		THREADENTRY32 thr = {sizeof(thr), };
+		if (Thread32First(hSnapshot, &thr))
+			do
+			{
+				if (thr.th32OwnerProcessID != m_dwPID)
+					continue;
+				ThreadRecord rec;
+				rec.ThreadID = thr.th32ThreadID;
+				char szName[128];
+				_snprintf(szName, sizeof(szName), "Priority = %d", thr.tpBasePri);
+				rec.UserFriendlyName = szName;
+				threads.push_back(rec);
+			} while(Thread32Next(hSnapshot, &thr));
+		CloseHandle(hSnapshot);
+		return kGDBSuccess;
+	}
+
 };
 
 class SimpleStub : public GDBStub
@@ -296,15 +328,32 @@ class SimpleStub : public GDBStub
 		return response;
 	}
 
-	virtual void OnProtocolError(const TCHAR *errorDescription)
-	{
-		_tprintf(_T("Protocol error: %s\n"), errorDescription);
-	}
-
 public:
 	SimpleStub(ISyncGDBTarget *pTarget)
 		: GDBStub(pTarget, true)
 	{
+	}
+};
+
+class Win32StubFactory : public IGDBStubFactory
+{
+	PROCESS_INFORMATION m_Process;
+
+public:
+	Win32StubFactory(const PROCESS_INFORMATION &proc)
+		: m_Process(proc)
+	{
+	}
+
+	virtual IGDBStub *CreateStub()
+	{
+		Win32GDBTarget *pTarget = new Win32GDBTarget(m_Process.hProcess, m_Process.hThread);
+		return new SimpleStub(pTarget);
+	}
+
+	virtual void OnProtocolError(const TCHAR *errorDescription)
+	{
+		_tprintf(_T("Protocol error: %s\n"), errorDescription);
 	}
 };
 
@@ -314,9 +363,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (!LaunchDebuggedProcess(&info))
 		return 1;
 
-	Win32GDBTarget *pTarget = new Win32GDBTarget(info.hProcess, info.hThread);
-
-	GDBServer srv(new SimpleStub(pTarget));
+	GDBServer srv(new Win32StubFactory(info));
 	srv.Start(2000);
 	Sleep(INFINITE);
 

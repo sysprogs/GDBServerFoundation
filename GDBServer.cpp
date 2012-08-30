@@ -35,6 +35,10 @@ void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &socket, const
 	TCPSocketEx socketEx(&socket, false);
 	bool ackEnabled = true, newAckEnabled = true;
 
+	IGDBStub *pStub = NULL;
+	if (m_pFactory)
+		pStub = m_pFactory->CreateStub();
+
 	for (;;)
 	{
 		//We expect the following format: $<data>#<checksum>
@@ -109,11 +113,12 @@ void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &socket, const
 			socketEx.Send(&ch, 1);
 		}
 
-		HandleGDBPacketAndSendReply(pPacket, unescapedSize, socketEx, &newAckEnabled);
+		HandleGDBPacketAndSendReply(pStub, pPacket, unescapedSize, socketEx, &newAckEnabled);
 
 		socketEx.Discard(pPacket, packetWithChecksumLength);
 	}
 	socketEx.Close();
+	delete pStub;
 }
 
 BazisLib::ActionStatus GDBServerFoundation::GDBServer::Start(unsigned port)
@@ -174,12 +179,12 @@ size_t GDBServerFoundation::GDBServer::UnescapePacket( void *pPacket, size_t esc
 	return w;
 }
 
-void GDBServerFoundation::GDBServer::HandleGDBPacketAndSendReply( const char *pPacketBody, size_t packetBodyLength, BazisLib::Network::TCPSocketEx &socket, bool *ackEnabled )
+void GDBServerFoundation::GDBServer::HandleGDBPacketAndSendReply( IGDBStub *pStub, const char *pPacketBody, size_t packetBodyLength, BazisLib::Network::TCPSocketEx &socket, bool *ackEnabled )
 {
-	if (!m_pStub)
+	if (!pStub)
 		return;
 
-	static const char splitterChars[] = ";: ";
+	static const char splitterChars[] = ";:,";
 	size_t splitter = packetBodyLength;
 	char splitterChar = 0;
 	for (size_t i = 0; i < packetBodyLength; i++)
@@ -195,7 +200,7 @@ void GDBServerFoundation::GDBServer::HandleGDBPacketAndSendReply( const char *pP
 	BazisLib::TempStrPointerWrapperA cmd(pPacketBody, splitter), args(pPacketBody + splitter + 1, (splitter == packetBodyLength) ? 0 : packetBodyLength - splitter - 1);
 
 	bool isStartNoAck = (cmd == "QStartNoAckMode");
-	StubResponse response = isStartNoAck ? QStartNoAckMode(ackEnabled) : m_pStub->HandleRequest(cmd, splitterChar, args);
+	StubResponse response = isStartNoAck ? QStartNoAckMode(ackEnabled) : pStub->HandleRequest(cmd, splitterChar, args);
 
 	char internalBuf[4996];
 	size_t internalBufSize = 1;

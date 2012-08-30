@@ -20,6 +20,12 @@ namespace GDBServerFoundation
 		ULONGLONG LoadAddress;
 	};
 
+	struct ThreadRecord
+	{
+		int ThreadID;
+		std::string UserFriendlyName;
+	};
+
 	//! Defines methods called when the target is stopped
 	class IStoppedGDBTarget
 	{
@@ -37,6 +43,7 @@ namespace GDBServerFoundation
 
 	public:	//Optional methods
 		virtual GDBStatus GetDynamicLibraryList(std::vector<DynamicLibraryRecord> &libraries)=0;
+		virtual GDBStatus GetThreadList(std::vector<ThreadRecord> &threads)=0;
 	};
 
 	enum TargetStopReason
@@ -63,8 +70,8 @@ namespace GDBServerFoundation
 	{
 	public:
 		virtual GDBStatus GetLastStopRecord(TargetStopRecord *pRec)=0;
-		virtual GDBStatus ResumeAndWait()=0;
-		virtual GDBStatus Step()=0;
+		virtual GDBStatus ResumeAndWait(int threadID)=0;
+		virtual GDBStatus Step(int threadID)=0;
 
 		virtual GDBStatus SendBreakInRequestAsync()=0;
 	};

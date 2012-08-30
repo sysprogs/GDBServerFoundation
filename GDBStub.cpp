@@ -233,8 +233,6 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::HandleRequest( c
 	return BasicGDBStub::HandleRequest(requestType, splitterChar, requestData);
 }
 
-#include <bzscore/file.h>
-
 BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex )
 {
 	if (name == "libraries")
@@ -251,5 +249,119 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 		result += "</library-list>\n";
 		return result;
 	}
+	else if (name == "threads")
+	{
+		BazisLib::DynamicStringA result = "<?xml version=\"1.0\"?>\n<threads>\n";
+		m_CachedThreadInfo.clear();
+		GDBStatus status = m_pTarget->GetThreadList(m_CachedThreadInfo);
+		if (status == kGDBSuccess)
+			for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+			{
+				result.AppendFormat("\t<thread id=\"%x\">", m_CachedThreadInfo[i].ThreadID);
+				result.append(m_CachedThreadInfo[i].UserFriendlyName.c_str());
+				result.append("</thread>\n");
+			}
+		result.AppendFormat("</threads>\n");
+		return result;
+	}
 	return "";
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_c( int threadID )
+{
+	GDBStatus status = m_pTarget->ResumeAndWait(threadID);
+	if (status != kGDBSuccess)
+		return FormatGDBStatus(status);
+
+	return Handle_QueryStopReason();
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_s( int threadID )
+{
+	GDBStatus status = m_pTarget->Step(threadID);
+	if (status != kGDBSuccess)
+		return FormatGDBStatus(status);
+
+	return Handle_QueryStopReason();
+}
+
+#if _MSC_VER
+#define snprintf _snprintf
+#endif
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qfThreadInfo()
+{
+	m_CachedThreadInfo.clear();
+	GDBStatus status = m_pTarget->GetThreadList(m_CachedThreadInfo);
+	if (status != kGDBSuccess)
+		return StandardResponses::CommandNotSupported;
+
+	StubResponse response;
+	if (m_CachedThreadInfo.size())
+	{
+		char szID[64];
+		response.Append("m");
+		for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+		{
+			snprintf(szID, sizeof(szID), "%x", m_CachedThreadInfo[i].ThreadID);
+			if (i)
+				response.Append(",");
+			response.Append(szID);
+		}
+	}
+	else
+		response.Append("l");
+	return response;
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qsThreadInfo()
+{
+	return "l";
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qThreadExtraInfo( const BazisLib::TempStringA &strThreadID )
+{
+	int threadID = HexHelpers::ParseHexString<unsigned>(strThreadID);
+	for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+	{
+		if (m_CachedThreadInfo[i].ThreadID == threadID)
+		{
+			StubResponse response;
+			const std::string &desc = m_CachedThreadInfo[i].UserFriendlyName;
+
+			char *pNewText = response.AllocateAppend(desc.length() * 2);
+			for (size_t i = 0, j = 0; i < desc.length(); i++)
+			{
+				unsigned char val = desc[i];
+				pNewText[j++] = HexHelpers::hexTable[(val >> 4) & 0x0F];
+				pNewText[j++] = HexHelpers::hexTable[val & 0x0F];
+			}
+			return response;
+		}
+	}
+
+	return "";
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_T( const BazisLib::TempStringA &strThreadID )
+{
+	int threadID = HexHelpers::ParseHexString<unsigned>(strThreadID);
+
+	for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+		if (m_CachedThreadInfo[i].ThreadID == threadID)
+			return "OK";
+
+	return "ENOSUCHTHREAD";
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qC()
+{
+	TargetStopRecord rec;
+	GDBStatus status = m_pTarget->GetLastStopRecord(&rec);
+	if (status != kGDBSuccess)
+		return StandardResponses::CommandNotSupported;
+
+	char szResponse[64];
+	snprintf(szResponse, sizeof(szResponse), "QC%x", rec.ThreadID);
+	return szResponse;
 }

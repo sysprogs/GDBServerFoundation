@@ -39,7 +39,6 @@ namespace GDBServerFoundation
 
 	public:
 		virtual StubResponse HandleRequest(const BazisLib::TempStringA &requestType, char splitterChar, const BazisLib::TempStringA &requestData);
-		virtual void OnProtocolError(const TCHAR *errorDescription) {}
 
 		BasicGDBStub();
 
@@ -69,6 +68,26 @@ namespace GDBServerFoundation
 
 		//! Writes target memory, data is transmitted in binary format
 		virtual StubResponse Handle_X(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length, const BazisLib::TempStringA &binaryData)=0;
+
+		//! Continue executing selected thread
+		virtual StubResponse Handle_c(int threadID)=0;
+
+		//! Single-step selected thread
+		virtual StubResponse Handle_s(int threadID)=0;
+
+		//!Return a list of all thread IDs
+		virtual StubResponse Handle_qfThreadInfo()=0;
+		virtual StubResponse Handle_qsThreadInfo()=0;
+
+		//!Return user-friendly thread description
+		virtual StubResponse Handle_qThreadExtraInfo(const BazisLib::TempStringA &strThreadID)=0;
+
+		//!Check whether the specified thread is alive
+		virtual StubResponse Handle_T(const BazisLib::TempStringA &strThreadID)=0;
+
+		//! Returns the current thread ID
+		virtual StubResponse Handle_qC()=0;
+
 
 	protected:
 		StubResponse StopRecordToStopReply(const TargetStopRecord &rec, const char *pReportedRegisterValues = NULL, bool updateLastReportedThreadID = true);

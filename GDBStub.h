@@ -12,6 +12,8 @@ namespace GDBServerFoundation
 
 		const PlatformRegisterList *m_pRegisters;
 
+		std::vector<ThreadRecord> m_CachedThreadInfo;
+
 	public:
 		GDBStub(ISyncGDBTarget *pTarget, bool own = true)
 		{
@@ -21,6 +23,7 @@ namespace GDBServerFoundation
 			m_pRegisters = pTarget->GetRegisterList();
 			
 			RegisterStubFeature("qXfer:libraries:read");
+			RegisterStubFeature("qXfer:threads:read");
 		}
 
 		~GDBStub()
@@ -40,6 +43,13 @@ namespace GDBServerFoundation
 		virtual StubResponse Handle_qXfer(const BazisLib::TempStringA &object, const BazisLib::TempStringA &verb, const BazisLib::TempStringA &annex, const BazisLib::TempStringA &offset, const BazisLib::TempStringA &length);
 
 		virtual StubResponse HandleRequest(const BazisLib::TempStringA &requestType, char splitterChar, const BazisLib::TempStringA &requestData);
+		virtual StubResponse Handle_c(int threadID);
+		virtual StubResponse Handle_s(int threadID);
+		virtual StubResponse Handle_qfThreadInfo();
+		virtual StubResponse Handle_qsThreadInfo();
+		virtual StubResponse Handle_qThreadExtraInfo(const BazisLib::TempStringA &strThreadID);
+		virtual StubResponse Handle_T(const BazisLib::TempStringA &strThreadID);
+		virtual StubResponse Handle_qC();
 
 	protected:
 		virtual BazisLib::DynamicStringA BuildGDBReportByName(const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex);

@@ -1,12 +1,13 @@
 #include "StdAfx.h"
 #include "BasicGDBStub.h"
+#include "HexHelpers.h"
 
 using namespace BazisLib;
 using namespace GDBServerFoundation;
 
 StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestType, char splitterChar, const BazisLib::TempStringA &requestData )
 {
-	//requestData is the part of the request following the first ' ', ';' or ':' character
+	//requestData is the part of the request following the first ',', ';' or ':' character
 	if (requestType.length() < 1)
 		return StandardResponses::CommandNotSupported;
 
@@ -17,6 +18,14 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 	case 'q':
 		if (requestType == "qSupported")
 			return Handle_qSupported(requestData);
+		else if (requestType == "qfThreadInfo")
+			return Handle_qfThreadInfo();
+		else if (requestType == "qsThreadInfo")
+			return Handle_qsThreadInfo();
+		else if (requestType == "qThreadExtraInfo")
+			return Handle_qThreadExtraInfo(requestData);
+		else if (requestType == "qC")
+			return Handle_qC();
 		break;
 	case 'H':
 		return Handle_H(requestType);
@@ -46,6 +55,12 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 		if (idx == -1)
 			break;
 		return Handle_X(requestType.substr(1, idx - 1), requestType.substr(idx + 1), requestData);
+	case 'c':
+		return Handle_c(GetThreadIDForOp(requestType[0]));
+	case 's':
+		return Handle_s(GetThreadIDForOp(requestType[0]));
+	case 'T':
+		return Handle_T(requestType.substr(1));
 	}
 
 	return StandardResponses::CommandNotSupported;
@@ -109,13 +124,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::Handle_H( c
 	if (requestType.length() < 3)
 		return StandardResponses::InvalidArgument;
 	unsigned char op = requestType[1];
-	char szThreadID[128];
-	if (requestType.length() >= sizeof(szThreadID))
-		return StandardResponses::InvalidArgument;
-
-	memcpy(szThreadID, requestType.GetConstBuffer() + 2, requestType.length() - 2);
-	szThreadID[requestType.length() - 2] = 0;
-	int threadId = atoi(szThreadID);
+	int threadId = HexHelpers::ParseHexString<unsigned>(requestType.substr(2));
 
 	m_ThreadIDsForOps[op] = threadId;
 	return StandardResponses::OK;

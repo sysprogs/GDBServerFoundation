@@ -71,7 +71,13 @@ namespace GDBServerFoundation
 	public:
 		//! Handles a fully unescaped RLE-expanded request from GDB
 		virtual StubResponse HandleRequest(const BazisLib::TempStringA &requestType, char splitterChar, const BazisLib::TempStringA &requestData)=0;
-		virtual void OnProtocolError(const TCHAR *errorDescription)=0;
 		virtual ~IGDBStub(){}
+	};
+
+	class IGDBStubFactory
+	{
+	public:
+		virtual IGDBStub *CreateStub()=0;
+		virtual void OnProtocolError(const TCHAR *errorDescription)=0;
 	};
 }
