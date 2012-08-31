@@ -72,6 +72,12 @@ namespace GDBServerFoundation
 		//! Returns the current thread ID
 		virtual StubResponse Handle_qC()=0;
 
+		//! Sets step mode for each thread independently and continues execution
+		virtual StubResponse Handle_vCont(const BazisLib::TempStringA &arguments)=0;
+
+		//! Kills the process
+		virtual StubResponse Handle_k()=0;
+
 	protected:
 		StubResponse StopRecordToStopReply(const TargetStopRecord &rec, const char *pReportedRegisterValues = NULL, bool updateLastReportedThreadID = true);
 		int GetThreadIDForOp(bool isRegOp);

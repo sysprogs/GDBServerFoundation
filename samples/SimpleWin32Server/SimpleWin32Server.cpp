@@ -16,8 +16,8 @@ using namespace GDBServerFoundation;
 bool LaunchDebuggedProcess(PROCESS_INFORMATION *pProcInfo)
 {
 	STARTUPINFO startupInfo = {sizeof(STARTUPINFO), };
-	//TCHAR tsz[] = L"C:\\MinGW\\bin\\0.exe";
-	TCHAR tsz[] = L"E:\\PROJECTS\\TEMP\\CustomGDBServerTest\\Debug\\CustomGDBServerTest.exe";
+	TCHAR tsz[] = L"C:\\MinGW\\bin\\0.exe";
+	//TCHAR tsz[] = L"E:\\PROJECTS\\TEMP\\CustomGDBServerTest\\Debug\\CustomGDBServerTest.exe";
 
 	if (!CreateProcess(NULL, tsz, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startupInfo, pProcInfo))
 		return false;
@@ -54,8 +54,6 @@ static ContextEntry s_ContextRegisterOffsets[] = {
 
 C_ASSERT(__countof(s_ContextRegisterOffsets) == __countof(i386::_RawRegisterList));
 
-#include <map>
-
 class Win32GDBTarget : public ISyncGDBTarget
 {
 private:
@@ -68,17 +66,26 @@ private:
 		return kGDBSuccess;
 	}
 
-	virtual GDBStatus Step(int threadID)
+	bool EnableSingleStep(int threadID, bool enable)
 	{
 		CONTEXT context;
 		if (!GetContextByThreadID(threadID, &context))
-			return kGDBUnknownError;
+			return false;
 
-		context.EFlags |= 0x0100;	//Enable single-stepping, will be auto-disabled in our WaitForDebugEvent() wrapper
+		if (enable)
+			context.EFlags |= 0x0100;
+		else
+			context.EFlags &= ~0x0100;
 
 		if (!SetContextByThreadID(threadID, &context))
+			return false;
+		return true;
+	}
+
+	virtual GDBStatus Step(int threadID)
+	{
+		if (!EnableSingleStep(threadID, true))
 			return kGDBUnknownError;
-		
 		return ResumeAndWait(threadID);
 	}
 
@@ -106,16 +113,8 @@ private:
 			{
 			case EXCEPTION_DEBUG_EVENT:
 				if (m_DebugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP)
-				{
-					CONTEXT context;
-					if (!GetContextByThreadID(m_DebugEvent.dwThreadId, &context))
+					if (!EnableSingleStep(m_DebugEvent.dwThreadId, false))
 						break;
-
-					context.EFlags &= ~0x0100;	//Disable single-stepping
-
-					if (!SetContextByThreadID(m_DebugEvent.dwThreadId, &context))
-						break;
-				}
 				break;
 			}
 
@@ -342,6 +341,41 @@ public:	//Optional API
 		CloseHandle(hSnapshot);
 		return kGDBSuccess;
 	}
+
+	virtual GDBStatus SetThreadModeForNextCont(int threadID, DebugThreadMode mode, OUT bool *pNeedRestoreCall, IN OUT INT_PTR *pRestoreCookie)
+	{
+		switch(mode)
+		{
+		case dtmProbe:
+			return kGDBSuccess;
+		case dtmSingleStep:
+			if (!EnableSingleStep(threadID, true))
+				return kGDBUnknownError;
+			return kGDBSuccess;
+		case dtmSuspend:
+			*pNeedRestoreCall = true;
+			//Intentionally no break
+		case dtmRestore:
+			{
+				HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, threadID);
+				if (hThread == INVALID_HANDLE_VALUE)
+					return kGDBUnknownError;
+
+				bool ok = ((mode == dtmSuspend) ? SuspendThread(hThread) : ResumeThread(hThread)) != -1;
+
+				CloseHandle(hThread);
+				return ok ? kGDBSuccess : kGDBUnknownError;
+			}
+		default:
+			return kGDBNotSupported;
+		}
+	}
+
+	virtual GDBStatus Terminate()
+	{
+		return TerminateProcess(m_hProcess, -1) ? kGDBSuccess : kGDBUnknownError;
+	}
+
 
 };
 

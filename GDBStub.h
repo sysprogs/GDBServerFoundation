@@ -48,7 +48,8 @@ namespace GDBServerFoundation
 		virtual StubResponse Handle_qThreadExtraInfo(const BazisLib::TempStringA &strThreadID);
 		virtual StubResponse Handle_T(const BazisLib::TempStringA &strThreadID);
 		virtual StubResponse Handle_qC();
-
+		virtual StubResponse Handle_vCont(const BazisLib::TempStringA &arguments);
+		virtual StubResponse Handle_k();
 
 	protected:
 		virtual BazisLib::DynamicStringA BuildGDBReportByName(const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex);

@@ -58,6 +58,14 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 		return Handle_s(GetThreadIDForOp(false));
 	case 'T':
 		return Handle_T(requestType.substr(1));
+	case 'v':
+		if (requestType == "vCont?")
+			return Handle_vCont(requestType.substr(5));
+		else if (requestType == "vCont")
+			return Handle_vCont(requestData);
+		break;
+	case 'k':
+		return Handle_k();
 	}
 
 	return StandardResponses::CommandNotSupported;

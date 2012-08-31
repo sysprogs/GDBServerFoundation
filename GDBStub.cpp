@@ -394,3 +394,115 @@ void GDBServerFoundation::GDBStub::ProvideThreadInfo()
 	m_CachedThreadInfo.clear();
 	m_bThreadsSupported = (m_pTarget->GetThreadList(m_CachedThreadInfo) == kGDBSuccess);
 }
+
+static DebugThreadMode modeFromAction(char action)
+{
+	switch(action)
+	{
+	case 'c':
+	case 'C':
+		return dtmProbe;
+	case 's':
+	case 'S':
+		return dtmSingleStep;
+	case 't':
+		return dtmSuspend;
+	default:
+		return dtmProbe;
+	}
+}
+
+#include <list>
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vCont( const BazisLib::TempStringA &arguments )
+{
+	bool needRestore;
+	INT_PTR cookie;
+
+	if (arguments == "?")	//Query supported vCont modes
+	{
+		if (m_pTarget->SetThreadModeForNextCont(0, dtmProbe, &needRestore, &cookie) == kGDBSuccess)
+			return "vCont;c;C;s;S;t";	//If only a subset is specified, GDB won't use vCont
+		return StandardResponses::CommandNotSupported;
+	}
+
+	ProvideThreadInfo();
+	std::map<unsigned, DebugThreadMode> threadMap;
+	for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
+		threadMap[m_CachedThreadInfo[i].ThreadID] = dtmProbe;	//We use this value as a default one for 'no action'
+	DebugThreadMode defaultMode = dtmProbe;
+
+	off_t start = 0, end = 0;
+	bool last = false;
+	for (;;)
+	{
+		end = arguments.find(';', start);
+		if (end == -1)
+			end = arguments.length(), last = true;
+
+		BazisLib::TempStringA action = arguments.substr(start, end - start);
+		unsigned threadID = 0;
+		off_t idx = action.find(':');
+		if (idx != -1)
+		{
+			threadID = HexHelpers::ParseHexString<unsigned>(action.substr(idx + 1));
+			action = action.substr(0, idx);
+		}
+
+		if (action.length() < 1)
+			return "EINVALIDARG";
+
+		DebugThreadMode mode = modeFromAction(action[0]);
+		if (threadID)
+			threadMap[threadID] = mode;
+		else
+			defaultMode = mode;
+
+		if (last)
+			break;
+		start = end + 1;
+	}
+
+	std::list<std::pair<unsigned, INT_PTR>> restoreQueue;
+	GDBStatus status = kGDBSuccess;
+
+	for (std::map<unsigned, DebugThreadMode>::iterator it = threadMap.begin(); it != threadMap.end(); it++)
+	{
+		DebugThreadMode mode = it->second;
+		if (mode == dtmProbe)
+			mode = defaultMode;
+
+		if (mode == dtmProbe)
+			continue;	//Nothing to do
+
+		needRestore = false;
+		cookie = 0;
+
+		status = m_pTarget->SetThreadModeForNextCont(it->first, mode, &needRestore, &cookie);
+		if (status != kGDBSuccess)
+			break;
+
+
+		if (needRestore)
+			restoreQueue.push_back(std::pair<unsigned, INT_PTR>(it->first, cookie));
+	}
+
+	if (status == kGDBSuccess)
+		status = m_pTarget->ResumeAndWait(0);
+
+	for(std::list<std::pair<unsigned, INT_PTR>>::iterator it = restoreQueue.begin(); it != restoreQueue.end(); it++)
+	{
+		needRestore = true;
+		m_pTarget->SetThreadModeForNextCont(it->first, dtmRestore, &needRestore, &it->second);
+	}
+
+	if (status != kGDBSuccess)
+		return FormatGDBStatus(status);
+
+	return Handle_QueryStopReason();
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_k()
+{
+	return FormatGDBStatus(m_pTarget->Terminate());
+}

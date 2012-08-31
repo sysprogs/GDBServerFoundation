@@ -14,6 +14,14 @@ namespace GDBServerFoundation
 		kGDBNotSupported = 22,	//EINVAL
 	};
 
+	enum DebugThreadMode
+	{
+		dtmProbe,	//Do not change anything, just return kGDBSuccess if the method is supported
+		dtmSingleStep,
+		dtmSuspend,
+		dtmRestore,
+	};
+
 	struct DynamicLibraryRecord
 	{
 		std::string FullPath;
@@ -44,6 +52,8 @@ namespace GDBServerFoundation
 	public:	//Optional methods
 		virtual GDBStatus GetDynamicLibraryList(std::vector<DynamicLibraryRecord> &libraries)=0;
 		virtual GDBStatus GetThreadList(std::vector<ThreadRecord> &threads)=0;
+		virtual GDBStatus SetThreadModeForNextCont(int threadID, DebugThreadMode mode, OUT bool *pNeedRestoreCall, IN OUT INT_PTR *pRestoreCookie)=0;
+		virtual GDBStatus Terminate()=0;
 	};
 
 	enum TargetStopReason

@@ -92,6 +92,7 @@ namespace GDBServerFoundation
 		{
 			m_bTerminating = true;
 			m_Semaphore.Signal();
+			m_WorkerThread.Join();
 		}
 
 		size_t Send(const void *pBuffer, size_t size)
