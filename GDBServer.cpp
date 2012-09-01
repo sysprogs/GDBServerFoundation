@@ -36,11 +36,17 @@ void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &rawSocket, co
 	TCPSocketEx socketExNotUsedDirectly(&rawSocket, false);
 	bool ackEnabled = true, newAckEnabled = true;
 
-	BreakInSocket breakInSocket(&socketExNotUsedDirectly);
-
 	IGDBStub *pStub = NULL;
 	if (m_pFactory)
 		pStub = m_pFactory->CreateStub();
+
+	if (!pStub)
+	{
+		rawSocket.Close();
+		return;
+	}
+
+	BreakInSocket breakInSocket(&socketExNotUsedDirectly);
 
 	CBuffer unescapedBuffer;
 
