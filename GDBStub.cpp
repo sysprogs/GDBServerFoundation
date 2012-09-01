@@ -10,6 +10,7 @@ StubResponse GDBStub::Handle_QueryStopReason()
 		return StandardResponses::CommandNotSupported;
 	
 	TargetStopRecord rec;
+	memset(&rec, 0, sizeof(rec));
 	if (m_pTarget->GetLastStopRecord(&rec) != kGDBSuccess)
 		return StandardResponses::CommandNotSupported;
 
@@ -233,6 +234,35 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::HandleRequest( c
 	return BasicGDBStub::HandleRequest(requestType, splitterChar, requestData);
 }
 
+static BazisLib::DynamicStringA HTMLEncode(const char *pStr)
+{
+	BazisLib::DynamicStringA result;
+
+	for (size_t i = 0; pStr[i]; i++)
+	{
+		char ch = pStr[i];
+		switch(ch)
+		{
+		case '<':
+			result.append("&lt;");
+			break;
+		case '>':
+			result.append("&gt;");
+			break;
+		case '&':
+			result.append("&amp;");
+			break;
+		case '\"':
+			result.append("&quot;");
+			break;
+		default:
+			result.append(1, ch);
+		}
+	}
+
+	return result;
+}
+
 BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex )
 {
 	if (name == "libraries")
@@ -240,6 +270,8 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 		std::vector<DynamicLibraryRecord> libraries;
 		BazisLib::DynamicStringA result = "<library-list>\n";
 		GDBStatus status = m_pTarget->GetDynamicLibraryList(libraries);
+		if (status == kGDBNotSupported)
+			return "";
 		if (status == kGDBSuccess)
 		{
 			for (size_t i = 0; i < libraries.size(); i++)
@@ -253,13 +285,43 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 	{
 		BazisLib::DynamicStringA result = "<?xml version=\"1.0\"?>\n<threads>\n";
 		ProvideThreadInfo();
+		if (!m_bThreadsSupported)
+			return "";
 		for (size_t i = 0; i < m_CachedThreadInfo.size(); i++)
 		{
 			result.AppendFormat("\t<thread id=\"%x\">", m_CachedThreadInfo[i].ThreadID);
-			result.append(m_CachedThreadInfo[i].UserFriendlyName.c_str());
+			result.append(HTMLEncode(m_CachedThreadInfo[i].UserFriendlyName.c_str()).c_str());
 			result.append("</thread>\n");
 		}
 		result.AppendFormat("</threads>\n");
+		return result;
+	}
+	else if (name == "memory-map")
+	{
+		static const char *MemoryTypes[3] = {"ram", "rom", "flash"};
+
+		BazisLib::DynamicStringA result = "<?xml version=\"1.0\"?>\n<!DOCTYPE memory-map PUBLIC \"+//IDN gnu.org//DTD GDB Memory Map V1.0//EN\" \"http://sourceware.org/gdb/gdb-memory-map.dtd\">\n";
+		result += "<memory-map>\n";
+		for (size_t i = 0; i < m_EmbeddedMemoryRegions.size(); i++)
+		{
+			const EmbeddedMemoryRegion &region = m_EmbeddedMemoryRegions[i];
+			if (region.Type >= __countof(MemoryTypes))
+				continue;
+
+			if (region.Type == mtFLASH)
+			{
+				unsigned blockSize = region.ErasureBlockSize;
+				if (!blockSize)
+					blockSize = region.Length;
+
+				result.AppendFormat("\t<memory type=\"%s\" start=\"0x%I64x\" length = \"0x%I64x\">\n", MemoryTypes[region.Type], region.Start, region.Length);
+				result.AppendFormat("\t\t<property name=\"blocksize\">0x%x</property>\n", blockSize);
+				result.AppendFormat("\t</memory>\n");
+			}
+			else
+				result.AppendFormat("\t<memory type=\"%s\" start=\"0x%I64x\" length = \"0x%I64x\"/>\n", MemoryTypes[region.Type], region.Start, region.Length);
+		}
+		result += "</memory-map>\n";
 		return result;
 	}
 	return "";
@@ -358,6 +420,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_T( const 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qC()
 {
 	TargetStopRecord rec;
+	memset(&rec, 0, sizeof(rec));
 	GDBStatus status = m_pTarget->GetLastStopRecord(&rec);
 	if (status != kGDBSuccess)
 		return StandardResponses::CommandNotSupported;
@@ -376,8 +439,16 @@ GDBServerFoundation::GDBStub::GDBStub( ISyncGDBTarget *pTarget, bool own /*= tru
 
 	m_pRegisters = pTarget->GetRegisterList();
 
-	RegisterStubFeature("qXfer:libraries:read");
-	RegisterStubFeature("qXfer:threads:read");
+	std::vector<DynamicLibraryRecord> libraries;
+	if (m_pTarget->GetDynamicLibraryList(libraries) != kGDBNotSupported)
+		RegisterStubFeature("qXfer:libraries:read");
+
+	if (m_pTarget->GetThreadList(m_CachedThreadInfo) != kGDBNotSupported)
+		RegisterStubFeature("qXfer:threads:read");
+
+	IFLASHProgrammer *pProg = m_pTarget->GetFLASHProgrammer();
+	if (pProg && pProg->GetEmbeddedMemoryRegions(m_EmbeddedMemoryRegions) == kGDBSuccess && !m_EmbeddedMemoryRegions.empty())
+		RegisterStubFeature("qXfer:memory-map:read");
 }
 
 void GDBServerFoundation::GDBStub::ResetAllCachesWhenResumingTarget()
@@ -392,7 +463,7 @@ void GDBServerFoundation::GDBStub::ProvideThreadInfo()
 		return;
 	m_bThreadCacheValid = true;
 	m_CachedThreadInfo.clear();
-	m_bThreadsSupported = (m_pTarget->GetThreadList(m_CachedThreadInfo) == kGDBSuccess);
+	m_bThreadsSupported = (m_pTarget->GetThreadList(m_CachedThreadInfo) != kGDBNotSupported);
 }
 
 static DebugThreadMode modeFromAction(char action)
@@ -505,4 +576,159 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vCont( co
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_k()
 {
 	return FormatGDBStatus(m_pTarget->Terminate());
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_Zz( bool setBreakpoint, char type, const BazisLib::TempStringA &addr, const BazisLib::TempStringA &kind, const BazisLib::TempStringA &conditions )
+{
+	BreakpointType bpType;
+	switch(type)
+	{
+	case '0':
+		bpType = bptSoftwareBreakpoint;
+		break;
+	case '1':
+		bpType = bptHardwareBreakpoint;
+		break;
+	case '2':
+		bpType = bptWriteWatchpoint;
+		break;
+	case '3':
+		bpType = bptReadWatchpoint;
+		break;
+	case '4':
+		bpType = bptAccessWatchpoint;
+		break;
+	default:
+		return StandardResponses::CommandNotSupported;
+	}
+
+	if (!conditions.empty())
+		return "ENOTSUPPORTED";
+
+	ULONGLONG ullAddr = HexHelpers::ParseHexString<ULONGLONG>(addr);
+	unsigned uKind = HexHelpers::ParseHexString<unsigned>(kind);
+
+	GDBStatus status;
+	INT_PTR cookie = 0;
+
+	std::pair<ULONGLONG, BreakpointType> key(ullAddr, bpType);
+
+	if (setBreakpoint)
+	{
+		status = m_pTarget->CreateBreakpoint(bpType, ullAddr, uKind, &cookie);
+		if (status == kGDBSuccess)
+			m_BreakpointMap[key] = cookie;
+	}
+	else
+	{
+		std::map<std::pair<ULONGLONG, BreakpointType>, INT_PTR>::iterator it = m_BreakpointMap.find(key);
+		if (it != m_BreakpointMap.end())
+			cookie = it->second;
+		status = m_pTarget->RemoveBreakpoint(bpType, ullAddr, cookie);
+		if (it != m_BreakpointMap.end())
+			m_BreakpointMap.erase(it);
+	}
+
+	return FormatGDBStatus(status);
+}
+
+#include "CRC32.h"
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qCRC( const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length )
+{
+	ULONGLONG ullAddr = HexHelpers::ParseHexString<ULONGLONG>(addr);
+	unsigned uLength = HexHelpers::ParseHexString<unsigned>(length);
+
+	BazisLib::BasicBuffer buf;
+	if (!buf.EnsureSize(65536))
+		return "ENOMEMORY";
+
+	unsigned crcValue = -1U;
+
+	while (uLength)
+	{
+		unsigned todo = uLength, done;
+		if (todo > buf.GetAllocated())
+			todo = buf.GetAllocated();
+
+		done = todo;
+
+		GDBStatus status = m_pTarget->ReadTargetMemory(ullAddr, buf.GetData(), &done);
+		if (status != kGDBSuccess)
+			return FormatGDBStatus(status);
+
+		if (done != todo)
+			return "EFAULT";
+
+		crcValue = CRC32(crcValue, buf.GetData(), done);
+
+		uLength -= done;
+		ullAddr += done;
+	}
+
+	char szResult[128];
+	snprintf(szResult, sizeof(szResult), "C%08X", crcValue);
+
+	return szResult;
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qRcmd( const BazisLib::TempStringA &command )
+{
+	std::string str, reply;
+	str.reserve(command.length() / 2);
+
+	if (command.length() % 2)
+		return "EINVAL";
+
+	for (size_t i = 0; i < command.length(); i+=2)
+	{
+		unsigned char byte = HexHelpers::ParseHexValue(command[i], command[i + 1]);
+		str.append(1, byte);
+	}
+
+	GDBStatus status = m_pTarget->ExecuteRemoteCommand(str, reply);
+	if (status != kGDBSuccess)
+		return FormatGDBStatus(status);
+
+	if (reply.empty())
+		return "OK";
+
+	StubResponse response;
+	char *pNewText = response.AllocateAppend(reply.length() * 2);
+	for (size_t i = 0, j = 0; i < reply.length(); i++)
+	{
+		unsigned char val = reply[i];
+		pNewText[j++] = HexHelpers::hexTable[(val >> 4) & 0x0F];
+		pNewText[j++] = HexHelpers::hexTable[val & 0x0F];
+	}
+	return response;
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vFlashErase( const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length )
+{
+	IFLASHProgrammer *pProg = m_pTarget->GetFLASHProgrammer();
+	if (!pProg)
+		return StandardResponses::CommandNotSupported;
+	GDBStatus status = pProg->EraseFLASH(HexHelpers::ParseHexString<ULONGLONG>(addr), HexHelpers::ParseHexString<unsigned>(length));
+	return FormatGDBStatus(status);
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vFlashWrite( const BazisLib::TempStringA &addr, const BazisLib::TempStringA &binaryData )
+{
+	IFLASHProgrammer *pProg = m_pTarget->GetFLASHProgrammer();
+	if (!pProg)
+		return StandardResponses::CommandNotSupported;
+	if (!binaryData.length())
+		return "OK";
+	GDBStatus status = pProg->WriteFLASH(HexHelpers::ParseHexString<ULONGLONG>(addr), binaryData.GetConstBuffer(), binaryData.size());
+	return FormatGDBStatus(status);
+}
+
+GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vFlashDone()
+{
+	IFLASHProgrammer *pProg = m_pTarget->GetFLASHProgrammer();
+	if (!pProg)
+		return StandardResponses::CommandNotSupported;
+	GDBStatus status = pProg->CommitFLASHWrite();
+	return FormatGDBStatus(status);
 }

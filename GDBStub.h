@@ -1,6 +1,8 @@
 #pragma once
 #include "BasicGDBStub.h"
 #include "IGDBTarget.h"
+#include <vector>
+#include <map>
 
 namespace GDBServerFoundation
 {
@@ -14,6 +16,10 @@ namespace GDBServerFoundation
 
 		std::vector<ThreadRecord> m_CachedThreadInfo;
 		bool m_bThreadCacheValid, m_bThreadsSupported;
+
+		std::map<std::pair<ULONGLONG, BreakpointType>, INT_PTR> m_BreakpointMap;
+
+		std::vector<EmbeddedMemoryRegion> m_EmbeddedMemoryRegions;
 
 	public:
 		GDBStub(ISyncGDBTarget *pTarget, bool own = true);
@@ -50,6 +56,13 @@ namespace GDBServerFoundation
 		virtual StubResponse Handle_qC();
 		virtual StubResponse Handle_vCont(const BazisLib::TempStringA &arguments);
 		virtual StubResponse Handle_k();
+		virtual StubResponse Handle_Zz(bool setBreakpoint, char type, const BazisLib::TempStringA &addr, const BazisLib::TempStringA &kind, const BazisLib::TempStringA &conditions);
+		virtual StubResponse Handle_qCRC(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length);
+		virtual StubResponse Handle_qRcmd(const BazisLib::TempStringA &command);
+
+		virtual StubResponse Handle_vFlashErase(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length);
+		virtual StubResponse Handle_vFlashWrite(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &binaryData);
+		virtual StubResponse Handle_vFlashDone();
 
 	protected:
 		virtual BazisLib::DynamicStringA BuildGDBReportByName(const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex);

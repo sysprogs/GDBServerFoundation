@@ -11,7 +11,7 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 	if (requestType.length() < 1)
 		return StandardResponses::CommandNotSupported;
 
-	size_t idx;
+	size_t idx, idx2;
 
 	switch(requestType[0])
 	{
@@ -26,6 +26,15 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 			return Handle_qThreadExtraInfo(requestData);
 		else if (requestType == "qC")
 			return Handle_qC();
+		else if (requestType == "qCRC")
+		{
+			idx = requestData.find(',');
+			if (idx == -1)
+				break;
+			return Handle_qCRC(requestData.substr(0, idx), requestData.substr(idx + 1));
+		}
+		else if (requestType == "qRcmd")
+			return Handle_qRcmd(requestData);
 		break;
 	case 'H':
 		return Handle_H(requestType);
@@ -63,9 +72,36 @@ StubResponse BasicGDBStub::HandleRequest( const BazisLib::TempStringA &requestTy
 			return Handle_vCont(requestType.substr(5));
 		else if (requestType == "vCont")
 			return Handle_vCont(requestData);
+		else if (requestType == "vFlashErase")
+		{
+			idx = requestData.find(',');
+			if (idx == -1)
+				break;
+			return Handle_vFlashErase(requestData.substr(0, idx), requestData.substr(idx + 1));
+		}
+		else if (requestType == "vFlashWrite")
+		{
+			idx = requestData.find(':');
+			if (idx == -1)
+				break;
+			return Handle_vFlashWrite(requestData.substr(0, idx), requestData.substr(idx + 1));
+		}
+		else if (requestType == "vFlashDone")
+			return Handle_vFlashDone();
 		break;
 	case 'k':
 		return Handle_k();
+	case 'Z':
+	case 'z':
+		if (requestType.length() != 2)
+			break;
+		idx2 = requestData.find(';');
+		if (idx2 == -1)
+			idx2 = requestData.length();
+		idx = requestData.find(',');
+		if (idx == -1)
+			break;
+		return Handle_Zz((requestType[0] == 'Z'), requestType[1], requestData.substr(0, idx), requestData.substr(idx + 1, idx2 - idx + 1), requestData.substr(idx2));
 	}
 
 	return StandardResponses::CommandNotSupported;
@@ -129,13 +165,16 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::Handle_H( c
 	if (requestType.length() < 3)
 		return StandardResponses::InvalidArgument;
 
-	//If the thread does not exist, abort the command
-	StubResponse response = Handle_T(requestType.substr(2));
-	if (response.GetSize() != 2 || memcmp(response.GetData(), "OK", 2))
-		return response;
+	int threadId = HexHelpers::ParseHexString<unsigned>(requestType.substr(2));
+	if (threadId > 0)
+	{
+		//If the thread does not exist, abort the command
+		StubResponse response = Handle_T(requestType.substr(2));
+		if (response.GetSize() != 2 || memcmp(response.GetData(), "OK", 2))
+			return response;
+	}
 
 	unsigned char op = requestType[1];
-	int threadId = HexHelpers::ParseHexString<unsigned>(requestType.substr(2));
 
 	switch(op)
 	{
@@ -226,7 +265,9 @@ void GDBServerFoundation::BasicGDBStub::AppendRegisterValueToString( const Regis
 GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::FormatGDBStatus( GDBStatus status )
 {
 	StubResponse response;
-	if (status != kGDBSuccess)
+	if (status == kGDBNotSupported)
+		return StandardResponses::CommandNotSupported;
+	else if (status != kGDBSuccess)
 		response.Append(BazisLib::DynamicStringA::sFormat("E%02x", status & 0xFF).c_str());
 	else
 		response.Append("OK");

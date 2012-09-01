@@ -32,8 +32,16 @@ namespace GDBServerFoundation
 		template<typename _Type> static inline _Type ParseHexString(const BazisLib::TempStringA &str)
 		{
 			_Type result = 0;
-			for (size_t i = 0; i < str.size(); i++)
+			size_t i = 0;
+			bool negate = false;
+			if (!str.empty() && str[0] == '-')
+				negate = true, i++;
+
+			for (;i < str.size(); i++)
 				result = (result << 4) | hexToInt(str[i]);		
+
+			if (negate)
+				return -result;
 			return result;
 		}
 	}

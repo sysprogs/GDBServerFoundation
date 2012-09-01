@@ -376,7 +376,15 @@ public:	//Optional API
 		return TerminateProcess(m_hProcess, -1) ? kGDBSuccess : kGDBUnknownError;
 	}
 
+	virtual GDBStatus CreateBreakpoint(BreakpointType type, ULONGLONG Address, unsigned kind, OUT INT_PTR *pCookie)
+	{
+		return kGDBNotSupported;
+	}
 
+	virtual GDBStatus RemoveBreakpoint(BreakpointType type, ULONGLONG Address, INT_PTR Cookie)
+	{
+		return kGDBNotSupported;
+	}
 };
 
 class SimpleStub : public GDBStub

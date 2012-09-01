@@ -73,6 +73,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BasicGDBStub.h" />
+    <ClInclude Include="CRC32.h" />
     <ClInclude Include="GDBRegisters.h" />
     <ClInclude Include="GDBServer.h" />
     <ClInclude Include="GDBStub.h" />
@@ -86,6 +87,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BasicGDBStub.cpp" />
+    <ClCompile Include="crc32.cpp" />
     <ClCompile Include="GDBServer.cpp" />
     <ClCompile Include="GDBStub.cpp" />
     <ClCompile Include="stdafx.cpp">

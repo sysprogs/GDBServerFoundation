@@ -78,6 +78,19 @@ namespace GDBServerFoundation
 		//! Kills the process
 		virtual StubResponse Handle_k()=0;
 
+		//! Sets or removes a breakpoint
+		virtual StubResponse Handle_Zz(bool setBreakpoint, char type, const BazisLib::TempStringA &addr, const BazisLib::TempStringA &kind, const BazisLib::TempStringA &conditions)=0;
+
+		//! Computes CRC of a given memory block
+		virtual StubResponse Handle_qCRC(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length)=0;
+
+		//! Executes an arbitrary target command sent by GDB
+		virtual StubResponse Handle_qRcmd(const BazisLib::TempStringA &command)=0;
+
+		virtual StubResponse Handle_vFlashErase(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &length)=0;
+		virtual StubResponse Handle_vFlashWrite(const BazisLib::TempStringA &addr, const BazisLib::TempStringA &binaryData)=0;
+		virtual StubResponse Handle_vFlashDone()=0;
+
 	protected:
 		StubResponse StopRecordToStopReply(const TargetStopRecord &rec, const char *pReportedRegisterValues = NULL, bool updateLastReportedThreadID = true);
 		int GetThreadIDForOp(bool isRegOp);

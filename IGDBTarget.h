@@ -11,7 +11,7 @@ namespace GDBServerFoundation
 	{
 		kGDBSuccess,
 		kGDBUnknownError,
-		kGDBNotSupported = 22,	//EINVAL
+		kGDBNotSupported = 0x1000,	//The command not supported. GDB should remember it and never try it again.
 	};
 
 	enum DebugThreadMode
@@ -20,6 +20,22 @@ namespace GDBServerFoundation
 		dtmSingleStep,
 		dtmSuspend,
 		dtmRestore,
+	};
+
+	enum BreakpointType
+	{
+		bptSoftwareBreakpoint,
+		bptHardwareBreakpoint,
+		bptWriteWatchpoint,
+		bptReadWatchpoint,
+		bptAccessWatchpoint,
+	};
+
+	enum EmbeddedMemoryType
+	{
+		mtRAM,
+		mtROM,
+		mtFLASH,
 	};
 
 	struct DynamicLibraryRecord
@@ -32,6 +48,35 @@ namespace GDBServerFoundation
 	{
 		int ThreadID;
 		std::string UserFriendlyName;
+	};
+
+	struct EmbeddedMemoryRegion
+	{
+		EmbeddedMemoryType Type;
+		ULONGLONG Start;
+		ULONGLONG Length;
+		unsigned ErasureBlockSize;	//Valid for FLASH only. Should be 0 if not supported
+
+		EmbeddedMemoryRegion()
+		{
+		}
+
+		EmbeddedMemoryRegion(EmbeddedMemoryType type, ULONGLONG start, ULONGLONG length, unsigned erasureBlockSize = 0)
+			: Type(type)
+			, Start(start)
+			, Length(length)
+			, ErasureBlockSize(erasureBlockSize)
+		{
+		}
+	};
+
+	class IFLASHProgrammer
+	{
+	public:
+		virtual GDBStatus GetEmbeddedMemoryRegions(std::vector<EmbeddedMemoryRegion> &regions)=0;
+		virtual GDBStatus EraseFLASH(ULONGLONG addr, size_t length)=0;
+		virtual GDBStatus WriteFLASH(ULONGLONG addr, const void *pBuffer, size_t length)=0;
+		virtual GDBStatus CommitFLASHWrite()=0;
 	};
 
 	//! Defines methods called when the target is stopped
@@ -49,11 +94,26 @@ namespace GDBServerFoundation
 		virtual GDBStatus ReadTargetMemory(ULONGLONG Address, void *pBuffer, size_t *pSizeInBytes)=0;
 		virtual GDBStatus WriteTargetMemory(ULONGLONG Address, const void *pBuffer, size_t sizeInBytes)=0;
 
-	public:	//Optional methods
+	public:	//Optional methods, return kGDBNotSupported if not implemented
 		virtual GDBStatus GetDynamicLibraryList(std::vector<DynamicLibraryRecord> &libraries)=0;
 		virtual GDBStatus GetThreadList(std::vector<ThreadRecord> &threads)=0;
 		virtual GDBStatus SetThreadModeForNextCont(int threadID, DebugThreadMode mode, OUT bool *pNeedRestoreCall, IN OUT INT_PTR *pRestoreCookie)=0;
 		virtual GDBStatus Terminate()=0;
+
+		//! Sets a breakpoint at a given address
+		/*!
+			\remarks It is not necessary to implement this method for software breakpoints. If GDB encounters a "not supported" reply,
+					 it will set the breakpoint using the WriteTargetMemory() call. It is only recommended to implement this method for
+					 the software breakpoints if it can set them better than GDB itself.
+		*/
+		virtual GDBStatus CreateBreakpoint(BreakpointType type, ULONGLONG Address, unsigned kind, OUT INT_PTR *pCookie)=0;
+		virtual GDBStatus RemoveBreakpoint(BreakpointType type, ULONGLONG Address, INT_PTR Cookie)=0;
+
+		//! This handler is invoked when user sends an arbitrary command to the GDB stub ("mon <command>" in GDB).
+		virtual GDBStatus ExecuteRemoteCommand(const std::string &command, std::string &output)=0;
+
+		//! Returns a pointer to an IFLASHProgrammer instance, or NULL if not supported. The returned instance should be persistent (e.g. the same object that implements IStoppedGDBTarget).
+		virtual IFLASHProgrammer *GetFLASHProgrammer()=0;
 	};
 
 	enum TargetStopReason

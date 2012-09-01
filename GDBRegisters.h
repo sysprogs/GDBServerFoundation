@@ -36,6 +36,11 @@ namespace GDBServerFoundation
 				SizeInBytes = sizeof(Value);
 			memcpy(Value, &integralValue, SizeInBytes);
 		}
+
+		unsigned ToUInt32() const
+		{
+			return *((unsigned *)Value);
+		}
 	};
 
 	//! Stores values of some or all target registers.

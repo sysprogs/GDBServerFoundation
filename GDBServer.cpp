@@ -18,7 +18,7 @@ static const char kRLEBase = 29;
 
 
 GDBServerFoundation::StubResponse GDBServerFoundation::StandardResponses::CommandNotSupported("");
-GDBServerFoundation::StubResponse GDBServerFoundation::StandardResponses::InvalidArgument("E 16");	//0x16 = 22 == EINVAL
+GDBServerFoundation::StubResponse GDBServerFoundation::StandardResponses::InvalidArgument("EINVALIDARG");
 GDBServerFoundation::StubResponse GDBServerFoundation::StandardResponses::OK("OK");
 
 #include <numeric>
