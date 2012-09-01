@@ -56,9 +56,10 @@ namespace GDBServerFoundation
 			{
 				size_t total = 0;
 				void *pData = m_pSocket->PeekAbs(1, &total);
-				if (total && pData && *((char *)pData) == kBreakInByte)
+				if (!pData || !total || *((char *)pData) == kBreakInByte)
 				{
-					m_pSocket->Discard(pData, 1);
+					if (total)
+						m_pSocket->Discard(pData, 1);
 
 					IBreakInTarget *pTarget = m_pTarget;
 					if (pTarget)

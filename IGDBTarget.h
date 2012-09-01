@@ -114,6 +114,7 @@ namespace GDBServerFoundation
 
 		//! Returns a pointer to an IFLASHProgrammer instance, or NULL if not supported. The returned instance should be persistent (e.g. the same object that implements IStoppedGDBTarget).
 		virtual IFLASHProgrammer *GetFLASHProgrammer()=0;
+		virtual ~IStoppedGDBTarget(){}
 	};
 
 	enum TargetStopReason

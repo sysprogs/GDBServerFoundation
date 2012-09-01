@@ -271,6 +271,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::FormatGDBSt
 		response.Append(BazisLib::DynamicStringA::sFormat("E%02x", status & 0xFF).c_str());
 	else
 		response.Append("OK");
+
 	return response;
 }
 
