@@ -13,7 +13,6 @@ namespace GDBServerFoundation
 
 	//! Encapsulates a socket with asynchronous break-in support
 	/*! This class should be used to receive packets from GDB. The main packet handling loop should look this way:
-
 		1. Create an instance of BreakInSocket::SocketWrapper
 		2. Use SocketWrapper to get read the packet. If the first byte received from the socket is 0x03, raise the break-in event.
 		3. If TCPSocketEx::Peek() was called, call TCPSocketEx::Discard()

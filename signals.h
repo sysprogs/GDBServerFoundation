@@ -2,6 +2,7 @@
 
 namespace GDBServerFoundation
 {
+	//! Defines UNIX signal numbers expected by GDB
 	enum UnixSignal
 	{
 		SIGHUP = 1,

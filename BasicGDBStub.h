@@ -6,6 +6,7 @@
 
 namespace GDBServerFoundation
 {
+	//! Implements basic GDB stub functionality (recognizing packet types, reporting features, formatting common replies).
 	class BasicGDBStub : public IGDBStub
 	{
 	private:

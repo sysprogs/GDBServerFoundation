@@ -5,6 +5,7 @@
 
 namespace GDBServerFoundation
 {
+	//! Contains the response sent to GDB by the target. The response it not escaped or RLE-encoded and does not include packet header and checksum.
 	class StubResponse
 	{
 		BazisLib::BasicBuffer m_Buffer;
@@ -60,6 +61,7 @@ namespace GDBServerFoundation
 		}
 	};
 
+	//! Contains common responses sent by gdbserver to GDB
 	struct StandardResponses
 	{
 		static StubResponse CommandNotSupported;
@@ -67,6 +69,7 @@ namespace GDBServerFoundation
 		static StubResponse OK;
 	};
 
+	//! Defines a GDB stub capable of handling raw gdbserver requests. Use the GDBStub class to instantiate.
 	class IGDBStub : public IBreakInTarget
 	{
 	public:
@@ -75,10 +78,11 @@ namespace GDBServerFoundation
 		virtual ~IGDBStub(){}
 	};
 
+	//! Defines a class that creates instances of IGDBStub when incoming connections from GDB are received.
 	class IGDBStubFactory
 	{
 	public:
-		virtual IGDBStub *CreateStub()=0;
+		virtual IGDBStub *CreateStub(class GDBServer *pServer)=0;
 		virtual void OnProtocolError(const TCHAR *errorDescription)=0;
 	};
 }

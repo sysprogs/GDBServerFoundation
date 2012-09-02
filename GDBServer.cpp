@@ -38,7 +38,7 @@ void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &rawSocket, co
 
 	IGDBStub *pStub = NULL;
 	if (m_pFactory)
-		pStub = m_pFactory->CreateStub();
+		pStub = m_pFactory->CreateStub(this);
 
 	if (!pStub)
 	{

@@ -14,7 +14,7 @@ StubResponse GDBStub::Handle_QueryStopReason()
 	if (m_pTarget->GetLastStopRecord(&rec) != kGDBSuccess)
 		return StandardResponses::CommandNotSupported;
 
-	TargetRegisterValues registers = InitializeTargetRegisterContainer();
+	RegisterSetContainer registers = InitializeRegisterSetContainer();
 	GDBStatus status = m_pTarget->ReadFrameRelatedRegisters(rec.ThreadID, registers);
 	BazisLib::DynamicStringA strRegisters;
 	if (status == kGDBSuccess)
@@ -35,7 +35,7 @@ StubResponse GDBStub::Handle_QueryStopReason()
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_g(int threadID)
 {
-	TargetRegisterValues registers = InitializeTargetRegisterContainer();
+	RegisterSetContainer registers = InitializeRegisterSetContainer();
 
 	StubResponse response;
 	GDBStatus status = m_pTarget->ReadTargetRegisters(threadID, registers);
@@ -52,9 +52,9 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_g(int thr
 	return response;
 }
 
-GDBServerFoundation::TargetRegisterValues GDBServerFoundation::GDBStub::InitializeTargetRegisterContainer()
+GDBServerFoundation::RegisterSetContainer GDBServerFoundation::GDBStub::InitializeRegisterSetContainer()
 {
-	TargetRegisterValues registers(m_pRegisters->RegisterCount);
+	RegisterSetContainer registers(m_pRegisters->RegisterCount);
 	for (size_t i = 0; i < m_pRegisters->RegisterCount; i++)
 		registers[i].SizeInBytes = (m_pRegisters->Registers[i].SizeInBits + 7) / 8;
 	return registers;
@@ -62,7 +62,7 @@ GDBServerFoundation::TargetRegisterValues GDBServerFoundation::GDBStub::Initiali
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_G( int threadID, const BazisLib::TempStringA &registerValueBlock )
 {
-	TargetRegisterValues registers = InitializeTargetRegisterContainer();
+	RegisterSetContainer registers = InitializeRegisterSetContainer();
 
 	size_t offset = 0;
 	for (size_t i = 0; i < registers.RegisterCount(); i++)
@@ -93,7 +93,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_P( int th
 	if (registerNumber >= m_pRegisters->RegisterCount)
 		return "EINVAL";
 
-	TargetRegisterValues registers = InitializeTargetRegisterContainer();
+	RegisterSetContainer registers = InitializeRegisterSetContainer();
 
 	if (registerValue.size() < 2U * registers[registerNumber].SizeInBytes)
 		return "EINVAL";
@@ -312,7 +312,7 @@ BazisLib::DynamicStringA GDBServerFoundation::GDBStub::BuildGDBReportByName( con
 			{
 				unsigned blockSize = region.ErasureBlockSize;
 				if (!blockSize)
-					blockSize = region.Length;
+					blockSize = (unsigned)region.Length;
 
 				result.AppendFormat("\t<memory type=\"%s\" start=\"0x%I64x\" length = \"0x%I64x\">\n", MemoryTypes[region.Type], region.Start, region.Length);
 				result.AppendFormat("\t\t<property name=\"blocksize\">0x%x</property>\n", blockSize);
@@ -487,6 +487,8 @@ static DebugThreadMode modeFromAction(char action)
 
 GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_vCont( const BazisLib::TempStringA &arguments )
 {
+	ResetAllCachesWhenResumingTarget();
+
 	bool needRestore;
 	INT_PTR cookie;
 
@@ -643,7 +645,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::GDBStub::Handle_qCRC( con
 	if (!buf.EnsureSize(65536))
 		return "ENOMEMORY";
 
-	unsigned crcValue = -1U;
+	unsigned crcValue = -1;
 
 	while (uLength)
 	{

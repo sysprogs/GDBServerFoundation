@@ -13,11 +13,11 @@
 using namespace BazisLib;
 using namespace GDBServerFoundation;
 
-bool LaunchDebuggedProcess(PROCESS_INFORMATION *pProcInfo)
+bool LaunchDebuggedProcess(LPCTSTR pszProcess, PROCESS_INFORMATION *pProcInfo)
 {
 	STARTUPINFO startupInfo = {sizeof(STARTUPINFO), };
-	TCHAR tsz[] = L"C:\\MinGW\\bin\\0.exe";
-	//TCHAR tsz[] = L"E:\\PROJECTS\\TEMP\\CustomGDBServerTest\\Debug\\CustomGDBServerTest.exe";
+	TCHAR tsz[MAX_PATH];
+	_tcsncpy(tsz, pszProcess, __countof(tsz));
 
 	if (!CreateProcess(NULL, tsz, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startupInfo, pProcInfo))
 		return false;
@@ -54,7 +54,7 @@ static ContextEntry s_ContextRegisterOffsets[] = {
 
 C_ASSERT(__countof(s_ContextRegisterOffsets) == __countof(i386::_RawRegisterList));
 
-class Win32GDBTarget : public ISyncGDBTarget
+class Win32GDBTarget : public MinimalTargetBase
 {
 private:
 	virtual GDBStatus ResumeAndWait(int threadID)
@@ -109,6 +109,8 @@ private:
 			if (!::WaitForDebugEvent(&m_DebugEvent, INFINITE))
 				return false;
 
+			printf("Debug event #%d, thread 0x%x\n", m_DebugEvent.dwDebugEventCode, m_DebugEvent.dwThreadId);
+
 			switch(m_DebugEvent.dwDebugEventCode)
 			{
 			case EXCEPTION_DEBUG_EVENT:
@@ -137,6 +139,8 @@ private:
 		case LOAD_DLL_DEBUG_EVENT:
 		case UNLOAD_DLL_DEBUG_EVENT:
 		case OUTPUT_DEBUG_STRING_EVENT:
+		case EXIT_PROCESS_DEBUG_EVENT:
+		case RIP_EVENT:
 			return true;
 		default:
 			return false;
@@ -192,13 +196,17 @@ protected:
 		case UNLOAD_DLL_DEBUG_EVENT:
 			pRec->Reason = kLibraryEvent;
 			break;
+		case EXIT_PROCESS_DEBUG_EVENT:
+			pRec->Reason = kProcessExited;
+			pRec->Extension.ExitCode = m_DebugEvent.u.ExitProcess.dwExitCode;
+			break;
 		default:
 			pRec->Reason = kUnspecified;
 			break;
 		}
 		return kGDBSuccess;
 	}
-
+	
 private:
 	bool GetContextByThreadID(int threadID, CONTEXT *pContext)
 	{
@@ -230,7 +238,7 @@ public:	//Register API
 	}
 
 	//This method can be left unimplemented. In this case GDB will issue a 'g' packet to read all target registers when the target is stopped.
-	virtual GDBStatus ReadFrameRelatedRegisters(int threadID, TargetRegisterValues &registers)
+	virtual GDBStatus ReadFrameRelatedRegisters(int threadID, RegisterSetContainer &registers)
 	{
 		//return kGDBNotSupported;
 
@@ -245,7 +253,7 @@ public:	//Register API
 		return kGDBSuccess;
 	}
 
-	virtual GDBStatus ReadTargetRegisters(int threadID, TargetRegisterValues &registers)
+	virtual GDBStatus ReadTargetRegisters(int threadID, RegisterSetContainer &registers)
 	{
 		CONTEXT context;
 		if (!GetContextByThreadID(threadID, &context))
@@ -261,7 +269,7 @@ public:	//Register API
 		return kGDBSuccess;
 	}
 
-	virtual GDBStatus WriteTargetRegisters(int threadID, const TargetRegisterValues &registers)
+	virtual GDBStatus WriteTargetRegisters(int threadID, const RegisterSetContainer &registers)
 	{
 		CONTEXT context;
 		if (!GetContextByThreadID(threadID, &context))
@@ -387,7 +395,7 @@ public:	//Optional API
 	}
 };
 
-class SimpleStub : public GDBStub
+class StubWithLogging : public GDBStub
 {
 	FILE *pLogFile;
 
@@ -403,13 +411,13 @@ class SimpleStub : public GDBStub
 	}
 
 public:
-	SimpleStub(ISyncGDBTarget *pTarget)
+	StubWithLogging(ISyncGDBTarget *pTarget)
 		: GDBStub(pTarget, true)
 	{
 		pLogFile = fopen("gdbserver.log", "w");
 	}
 
-	~SimpleStub()
+	~StubWithLogging()
 	{
 		fclose(pLogFile);
 	}
@@ -418,17 +426,25 @@ public:
 class Win32StubFactory : public IGDBStubFactory
 {
 	PROCESS_INFORMATION m_Process;
+	bool m_bVerbose;
 
 public:
-	Win32StubFactory(const PROCESS_INFORMATION &proc)
+	Win32StubFactory(const PROCESS_INFORMATION &proc, bool verbose)
 		: m_Process(proc)
+		, m_bVerbose(verbose)
 	{
 	}
 
-	virtual IGDBStub *CreateStub()
+	virtual IGDBStub *CreateStub(GDBServer *pServer)
 	{
+		printf("GDB connected.\n");
+		pServer->StopListening();
 		Win32GDBTarget *pTarget = new Win32GDBTarget(m_Process.hProcess, m_Process.hThread);
-		return new SimpleStub(pTarget);
+
+		if (m_bVerbose)
+			return new StubWithLogging(pTarget);
+		else
+			return new GDBStub(pTarget);
 	}
 
 	virtual void OnProtocolError(const TCHAR *errorDescription)
@@ -439,13 +455,27 @@ public:
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	PROCESS_INFORMATION info;
-	if (!LaunchDebuggedProcess(&info))
+	if (argc < 2)
+	{
+		printf("Usage: SimpleWin32Server <exe name> [--verbose]");
 		return 1;
+	}
 
-	GDBServer srv(new Win32StubFactory(info));
+	bool verbose = false;
+	if (argc >= 3 && !_tcscmp(argv[2], _T("--verbose")))
+		verbose = true;
+
+	PROCESS_INFORMATION info;
+	if (!LaunchDebuggedProcess(argv[1], &info))
+	{
+		_tprintf(_T("Cannot launch %s\n"), argv[1]);
+		return 1;
+	}
+
+	GDBServer srv(new Win32StubFactory(info, verbose));
+	printf("Listening in port 2000. You can connect GDB now\n");
 	srv.Start(2000);
-	Sleep(INFINITE);
+	srv.WaitForTermination();
 
 	return 0;
 }

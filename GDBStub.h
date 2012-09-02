@@ -6,6 +6,7 @@
 
 namespace GDBServerFoundation
 {
+	//! Implements supported gdbserver packets by invoking methods of a provided IGDBTarget object
 	class GDBStub : public BasicGDBStub
 	{
 	private:
@@ -68,7 +69,7 @@ namespace GDBServerFoundation
 		virtual BazisLib::DynamicStringA BuildGDBReportByName(const BazisLib::TempStringA &name, const BazisLib::TempStringA &annex);
 
 	protected:
-		TargetRegisterValues InitializeTargetRegisterContainer();
+		RegisterSetContainer InitializeRegisterSetContainer();
 		void ResetAllCachesWhenResumingTarget();
 
 	protected:
