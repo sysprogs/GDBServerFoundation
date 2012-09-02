@@ -41,6 +41,11 @@ namespace GDBServerFoundation
 		{
 			return *((unsigned *)Value);
 		}
+
+		unsigned short ToUInt16() const
+		{
+			return *((unsigned short *)Value);
+		}
 	};
 
 	//! Stores values of some or all target registers.
