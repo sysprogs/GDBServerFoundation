@@ -14,21 +14,25 @@ StubResponse GDBStub::Handle_QueryStopReason()
 	if (m_pTarget->GetLastStopRecord(&rec) != kGDBSuccess)
 		return StandardResponses::CommandNotSupported;
 
-	RegisterSetContainer registers = InitializeRegisterSetContainer();
-	GDBStatus status = m_pTarget->ReadFrameRelatedRegisters(rec.ThreadID, registers);
 	BazisLib::DynamicStringA strRegisters;
-	if (status == kGDBSuccess)
+	if (rec.Reason != kProcessExited)
 	{
-		for(size_t i = 0; i < registers.RegisterCount(); i++)
+		RegisterSetContainer registers = InitializeRegisterSetContainer();
+		GDBStatus status = m_pTarget->ReadFrameRelatedRegisters(rec.ThreadID, registers);
+		if (status == kGDBSuccess)
 		{
-			const RegisterValue &val = registers[i];
-			if (val.Valid)
+			for(size_t i = 0; i < registers.RegisterCount(); i++)
 			{
-				strRegisters.AppendFormat("%02x:", m_pRegisters->Registers[i].RegisterIndex);
-				AppendRegisterValueToString(val, (m_pRegisters->Registers[i].SizeInBits + 7) / 8, strRegisters, ";");
+				const RegisterValue &val = registers[i];
+				if (val.Valid)
+				{
+					strRegisters.AppendFormat("%02x:", m_pRegisters->Registers[i].RegisterIndex);
+					AppendRegisterValueToString(val, (m_pRegisters->Registers[i].SizeInBits + 7) / 8, strRegisters, ";");
+				}
 			}
 		}
 	}
+
 	return StopRecordToStopReply(rec, strRegisters.c_str());
 }
 

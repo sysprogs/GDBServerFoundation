@@ -209,10 +209,7 @@ GDBServerFoundation::StubResponse GDBServerFoundation::BasicGDBStub::StopRecordT
 	switch(rec.Reason)
 	{
 	case kProcessExited:
-		if (rec.ProcessID)
-			snprintf(szReasonBase, sizeof(szReasonBase), "W%x;process:%x", rec.Extension.ExitCode, rec.ProcessID);
-		else
-			snprintf(szReasonBase, sizeof(szReasonBase), "W%x", rec.Extension.ExitCode);
+		snprintf(szReasonBase, sizeof(szReasonBase), "W%02x", rec.Extension.ExitCode);
 		response.Append(szReasonBase);
 		break;
 	case kSignalReceived:

@@ -5,6 +5,7 @@
 
 namespace GDBServerFoundation
 {
+	//! Receives asynchronous break-in requests from a BreakInSocket
 	class IBreakInTarget
 	{
 	public:

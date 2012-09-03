@@ -1,5 +1,27 @@
-// VBoxGDB.cpp : Defines the entry point for the console application.
-//
+/*
+	A simple Win32 API-based gdbserver implementation.
+	This server can run a Win32 EXE in debug mode and allow debugging it with GDB via the "target remote" command.
+
+	The main functionality of the server is contained in the Win32GDBTarget class implementing the GDBServerFoundation::ISyncGDBTarget interface.
+	
+	The stub uses the following Win32 API to debug the started process:
+		* DebugActiveProcess()
+		* WaitForDebugEvent() / ContinueDebugEvent()
+		* GetThreadContext() / SetThreadContext()
+		* ReadProcessMemory() / WriteProcessMemory()
+
+	To see the server in action, build a simple EXE with debug information using gcc:
+		g++ -O0 -ggdb test.cpp -o test.exe
+	Then start the server app:
+		SimpleWin32Server test.exe
+	and finally start debugging it with GDB:
+		gdb test.exe
+		target remote :2000
+		b main
+		continue
+
+	The server is very simple, it does not handle all debug events and does not close all handles. It is provided only as an example for the GDBServerFoundation library.
+*/
 
 #include "stdafx.h"
 #include <stdio.h>
@@ -54,6 +76,7 @@ static ContextEntry s_ContextRegisterOffsets[] = {
 
 C_ASSERT(__countof(s_ContextRegisterOffsets) == __countof(i386::_RawRegisterList));
 
+//! Implements the GDBServerFoundation::ISyncGDBTarget interface using Win32 API functions to debug a local process 
 class Win32GDBTarget : public MinimalTargetBase
 {
 private:
@@ -100,6 +123,7 @@ private:
 	DWORD m_dwPID;
 	DEBUG_EVENT m_DebugEvent;
 	HANDLE m_hProcess;
+	std::set<int> m_Threads;
 
 private:
 	bool WaitForDebugEvent(bool ignoreUnsupportedEvents = true)
@@ -117,6 +141,14 @@ private:
 				if (m_DebugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP)
 					if (!EnableSingleStep(m_DebugEvent.dwThreadId, false))
 						break;
+				break;
+			case CREATE_THREAD_DEBUG_EVENT:
+				if (m_DebugEvent.dwThreadId)
+					m_Threads.insert(m_DebugEvent.dwThreadId);
+				break;
+			case EXIT_THREAD_DEBUG_EVENT:
+				if (m_DebugEvent.dwThreadId);
+					m_Threads.erase(m_DebugEvent.dwThreadId);
 				break;
 			}
 
@@ -330,23 +362,13 @@ public:	//Optional API
 
 	virtual GDBStatus GetThreadList(std::vector<ThreadRecord> &threads)
 	{
-		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, m_dwPID);
-		if (hSnapshot == INVALID_HANDLE_VALUE)
-			return kGDBUnknownError;
-		THREADENTRY32 thr = {sizeof(thr), };
-		if (Thread32First(hSnapshot, &thr))
-			do
-			{
-				if (thr.th32OwnerProcessID != m_dwPID)
-					continue;
-				ThreadRecord rec;
-				rec.ThreadID = thr.th32ThreadID;
-				char szName[128];
-				_snprintf(szName, sizeof(szName), "Priority = %d", thr.tpBasePri);
-				rec.UserFriendlyName = szName;
-				threads.push_back(rec);
-			} while(Thread32Next(hSnapshot, &thr));
-		CloseHandle(hSnapshot);
+		for each(int id in m_Threads)
+		{
+			ThreadRecord rec;
+			rec.UserFriendlyName = "No additional info";
+			rec.ThreadID = id;
+			threads.push_back(rec);
+		}
 		return kGDBSuccess;
 	}
 
