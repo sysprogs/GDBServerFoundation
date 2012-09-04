@@ -33,6 +33,7 @@ void GDBServerFoundation::GDBServer::ConnectionHandler( TCPSocket &rawSocket, co
 {
 	enum {kBytesToReceiveAtOnce = 65536};
 
+	rawSocket.SetNoDelay(true);
 	TCPSocketEx socketExNotUsedDirectly(&rawSocket, false);
 	bool ackEnabled = true, newAckEnabled = true;
 

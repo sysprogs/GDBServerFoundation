@@ -78,6 +78,7 @@
     <ClInclude Include="GDBRegisters.h" />
     <ClInclude Include="GDBServer.h" />
     <ClInclude Include="GDBStub.h" />
+    <ClInclude Include="GlobalSessionMonitor.h" />
     <ClInclude Include="HexHelpers.h" />
     <ClInclude Include="IGDBStub.h" />
     <ClInclude Include="IGDBTarget.h" />
@@ -91,6 +92,7 @@
     <ClCompile Include="crc32.cpp" />
     <ClCompile Include="GDBServer.cpp" />
     <ClCompile Include="GDBStub.cpp" />
+    <ClCompile Include="GlobalSessionMonitor.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>

@@ -354,6 +354,11 @@ namespace GDBServerFoundation
 					 should be fully thread-safe, should not wait for any event to complete and should return immediately. 
 		*/
 		virtual GDBStatus SendBreakInRequestAsync()=0;
+
+		//! Close the session when the server is about to terminate
+		/*! This method is called by the GlobalSessionMonitor class when the user presses Ctrl+Break to terminate the program.
+		*/
+		virtual void CloseSessionSafely()=0;
 	};
 
 	//! Provides default "not supported" implementations for optional methods of IStoppedGDBTarget
@@ -404,6 +409,11 @@ namespace GDBServerFoundation
 		{
 			return NULL;
 		}
+
+		virtual void CloseSessionSafely()
+		{
+		}
+
 	};
 
 }
