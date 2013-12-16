@@ -49,7 +49,7 @@ namespace GDBServerFoundation
 		}
 
 		//! Creates a new instance of RegisterValue containing the actual value
-		RegisterValue(unsigned integralValue, unsigned char sizeInBytes)
+		RegisterValue(ULONGLONG integralValue, unsigned char sizeInBytes)
 			: Valid(true)
 			, SizeInBytes(sizeInBytes)
 		{
