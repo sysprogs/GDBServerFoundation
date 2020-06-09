@@ -1,0 +1,6 @@
+The GDBServerFoundation framework is dual-licensed:
+
+    * You can use it under the terms of the LGPL license (i.e. publish the source of all statically linked code).
+    * You can alternatively purchase a commercial license from Sysprogs to use it in your closed-source code.
+
+The commercial license comes with 1 year of technical support.
