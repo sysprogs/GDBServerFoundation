@@ -1,4 +1,3 @@
-kBreakInByte
 #include "StdAfx.h"
 #include "GDBServer.h"
 #include "HexHelpers.h"
